@@ -1,0 +1,153 @@
+@media (max-width: 1024px) {
+    .hero-content {
+        grid-template-columns: 1fr;
+        gap: 40px;
+        text-align: center;
+    }
+    
+    .hero-description {
+        margin-left: auto;
+        margin-right: auto;
+    }
+    
+    .hero-actions {
+        justify-content: center;
+    }
+    
+    .hero-visual {
+        display: none;
+    }
+    
+    .features-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .steps-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .footer-content {
+        grid-template-columns: 1fr 1fr;
+        gap: 40px;
+    }
+}
+
+@media (max-width: 768px) {
+    h1 { font-size: 2.5rem; }
+    h2 { font-size: 2rem; }
+    
+    .nav-links {
+        display: none;
+    }
+    
+    .mobile-menu-btn {
+        display: block;
+    }
+    
+    .header-actions .btn-primary {
+        display: none;
+    }
+    
+    .features-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .steps-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .stats-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .quality-metrics {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .project-info-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .report-options {
+        grid-template-columns: 1fr;
+    }
+    
+    .footer-content {
+        grid-template-columns: 1fr;
+        gap: 40px;
+    }
+    
+    .results-header {
+        flex-direction: column;
+        gap: 24px;
+        text-align: center;
+    }
+    
+    .upload-zone {
+        padding: 40px 24px;
+    }
+}
+
+@media (max-width: 480px) {
+    h1 { font-size: 2rem; }
+    h2 { font-size: 1.5rem; }
+    
+    .container {
+        padding: 0 16px;
+    }
+    
+    .section {
+        padding: 80px 0;
+    }
+    
+    .btn-lg {
+        padding: 14px 24px;
+        font-size: 0.9rem;
+    }
+    
+    .hero-actions {
+        flex-direction: column;
+        width: 100%;
+    }
+    
+    .hero-actions .btn-primary,
+    .hero-actions .btn-secondary,
+    .hero-actions .btn-outline {
+        width: 100%;
+        justify-content: center;
+    }
+    
+    .quality-metrics {
+        grid-template-columns: 1fr;
+    }
+    
+    .metric-item {
+        flex-direction: column;
+        gap: 8px;
+        text-align: center;
+    }
+    
+    .info-item {
+        padding: 16px;
+    }
+    
+    .feature-card {
+        padding: 32px 24px;
+    }
+    
+    .step-card {
+        padding: 32px 24px;
+    }
+    
+    .stat-card {
+        padding: 24px;
+    }
+    
+    .cta-card {
+        padding: 48px 24px;
+    }
+}

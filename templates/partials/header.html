@@ -1,0 +1,66 @@
+<header class="header">
+    <div class="container header-inner">
+        <a href="/" class="logo">
+            <svg class="logo-icon" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect width="40" height="40" rx="8" fill="#fff"/>
+                <path d="M10 12h20v3H10zM10 18h14v3H10zM10 24h18v3H10z" fill="#000"/>
+            </svg>
+            <span class="logo-text">Black Hat</span>
+        </a>
+        
+        <nav class="nav-links">
+            <a href="/" class="nav-link" data-i18n="nav.home">Home</a>
+            <a href="/#features" class="nav-link" data-i18n="nav.features">Features</a>
+            <a href="/#how-it-works" class="nav-link" data-i18n="nav.howItWorks">How It Works</a>
+            <a href="/upload" class="nav-link" data-i18n="nav.upload">Upload</a>
+        </nav>
+        
+        <div class="header-actions">
+            <div class="language-switcher" x-data="languageSwitcher">
+                <button @click="toggle()" class="lang-btn" aria-label="Change language">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="2" y1="12" x2="22" y2="12"></line>
+                        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                    </svg>
+                    <span x-text="getCurrentName()"></span>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" :class="{ 'rotate-180': isOpen }" class="transition-transform">
+                        <polyline points="6 9 12 15 18 9"></polyline>
+                    </svg>
+                </button>
+                
+                <div x-show="isOpen" 
+                     x-transition:enter="transition ease-out duration-200"
+                     x-transition:enter-start="opacity-0 transform -translate-y-2"
+                     x-transition:enter-end="opacity-100 transform translate-y-0"
+                     x-transition:leave="transition ease-in duration-150"
+                     x-transition:leave-start="opacity-100"
+                     x-transition:leave-end="opacity-0"
+                     @click.away="isOpen = false"
+                     class="lang-dropdown">
+                    <template x-for="lang in getLanguages()" :key="lang.code">
+                        <a href="#" 
+                           @click.prevent="select(lang.code)"
+                           :class="{ 'active': currentLang === lang.code }"
+                           class="lang-option">
+                            <span x-text="lang.name"></span>
+                            <svg x-show="currentLang === lang.code" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="20 6 9 17 4 12"></polyline>
+                            </svg>
+                        </a>
+                    </template>
+                </div>
+            </div>
+            
+            <a href="/upload" class="btn-primary" data-i18n="nav.upload">Upload</a>
+        </div>
+        
+        <button class="mobile-menu-btn" @click="mobileMenuOpen = !mobileMenuOpen" x-data="{ mobileMenuOpen: false }">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="3" y1="6" x2="21" y2="6"></line>
+                <line x1="3" y1="12" x2="21" y2="12"></line>
+                <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+        </button>
+    </div>
+</header>

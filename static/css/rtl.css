@@ -1,0 +1,137 @@
+[dir="rtl"] {
+    direction: rtl;
+    text-align: right;
+}
+
+[dir="rtl"] .nav-links {
+    flex-direction: row-reverse;
+}
+
+[dir="rtl"] .feature-card {
+    text-align: right;
+}
+
+[dir="rtl"] .step-card {
+    text-align: right;
+}
+
+[dir="rtl"] .stat-card {
+    text-align: right;
+}
+
+[dir="rtl"] .cta-card {
+    text-align: right;
+}
+
+[dir="rtl"] .upload-zone {
+    text-align: right;
+}
+
+[dir="rtl"] .analysis-container {
+    text-align: right;
+}
+
+[dir="rtl"] .analysis-status {
+    text-align: right;
+}
+
+[dir="rtl"] .status-step {
+    flex-direction: row-reverse;
+}
+
+[dir="rtl"] .table-container {
+    direction: rtl;
+}
+
+[dir="rtl"] table th,
+[dir="rtl"] table td {
+    text-align: right;
+}
+
+[dir="rtl"] .quality-metrics {
+    direction: rtl;
+}
+
+[dir="rtl"] .metric-item {
+    flex-direction: row-reverse;
+}
+
+[dir="rtl"] .project-info-grid {
+    direction: rtl;
+}
+
+[dir="rtl"] .info-item {
+    text-align: right;
+}
+
+[dir="rtl"] .report-options {
+    direction: rtl;
+}
+
+[dir="rtl"] .report-card {
+    text-align: right;
+}
+
+[dir="rtl"] .empty-state {
+    text-align: right;
+}
+
+[dir="rtl"] .results-header {
+    flex-direction: row-reverse;
+}
+
+[dir="rtl"] .hero-actions {
+    flex-direction: row-reverse;
+}
+
+[dir="rtl"] .footer-content {
+    direction: rtl;
+}
+
+[dir="rtl"] .footer-social {
+    align-items: flex-end;
+}
+
+[dir="rtl"] .lang-dropdown {
+    right: auto;
+    left: 0;
+}
+
+[dir="rtl"] .header-inner {
+    flex-direction: row-reverse;
+}
+
+[dir="rtl"] .header-actions {
+    flex-direction: row-reverse;
+}
+
+[dir="rtl"] .hero-title {
+    text-align: right;
+}
+
+[dir="rtl"] .hero-description {
+    text-align: right;
+}
+
+[dir="rtl"] .section-title {
+    text-align: right;
+}
+
+[dir="rtl"] .section-subtitle {
+    text-align: right;
+}
+
+@keyframes slideInRight {
+    from {
+        opacity: 0;
+        transform: translateX(50px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+[dir="rtl"] .slide-in {
+    animation-name: slideInRight;
+}

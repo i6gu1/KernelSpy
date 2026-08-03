@@ -1,0 +1,38 @@
+{{define "hero"}}
+<section class="hero">
+    <div class="hero-bg">
+        <div class="hero-grid"></div>
+    </div>
+    <div class="container hero-content">
+        <div class="hero-text animate-fade-in-up">
+            <h1 class="hero-title" data-i18n="hero.title">Analyze Your Code. Improve Quality. Detect Risks.</h1>
+            <p class="hero-description" data-i18n="hero.description">Upload your project or connect a Git repository to analyze code quality, security issues, dependency vulnerabilities, and project structure using trusted analysis tools.</p>
+            <div class="hero-actions">
+                <a href="/upload" class="btn-primary btn-lg" data-i18n="hero.analyzeProject">Analyze Project</a>
+                <button class="btn-secondary btn-lg" data-i18n="hero.connectRepo">Connect Repository</button>
+                <button class="btn-outline btn-lg" data-i18n="hero.viewSample">View Sample Report</button>
+            </div>
+        </div>
+        <div class="hero-visual animate-fade-in">
+            <div class="hero-code-block">
+                <div class="code-header">
+                    <span class="code-dot"></span>
+                    <span class="code-dot"></span>
+                    <span class="code-dot"></span>
+                    <span class="code-title">analysis.go</span>
+                </div>
+                <pre class="code-content"><code><span class="code-keyword">func</span> <span class="code-func">AnalyzeProject</span>(path <span class="code-type">string</span>) <span class="code-type">*Result</span> {
+    <span class="code-comment">// Detect languages</span>
+    langs := detector.<span class="code-func">Detect</span>(path)
+    
+    <span class="code-comment">// Run security scan</span>
+    findings := semgrep.<span class="code-func">Scan</span>(path)
+    
+    <span class="code-comment">// Generate report</span>
+    <span class="code-keyword">return</span> reporter.<span class="code-func">Generate</span>(findings)
+}</code></pre>
+            </div>
+        </div>
+    </div>
+</section>
+{{end}}

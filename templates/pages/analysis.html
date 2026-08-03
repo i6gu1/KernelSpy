@@ -1,0 +1,127 @@
+{{template "layouts/base.html" .}}
+
+{{define "content"}}
+<section class="section analysis-section">
+    <div class="container">
+        <div class="analysis-container animate-fade-in-up" x-data="analysisPoller('{{.AnalysisID}}')">
+            <div class="analysis-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="spin-icon">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <path d="M12 6v6l4 2"></path>
+                </svg>
+            </div>
+            
+            <h1 class="section-title" data-i18n="analysis.title">Project Analysis</h1>
+            
+            <div class="analysis-status">
+                <div class="status-step" :class="{ 'active': step >= 1, 'completed': step > 1 }">
+                    <div class="step-indicator">
+                        <svg x-show="step > 1" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                        <span x-show="step <= 1">1</span>
+                    </div>
+                    <span data-i18n="analysis.preparing">Preparing...</span>
+                </div>
+                
+                <div class="status-step" :class="{ 'active': step >= 2, 'completed': step > 2 }">
+                    <div class="step-indicator">
+                        <svg x-show="step > 2" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                        <span x-show="step <= 2">2</span>
+                    </div>
+                    <span data-i18n="analysis.extracting">Extracting project...</span>
+                </div>
+                
+                <div class="status-step" :class="{ 'active': step >= 3, 'completed': step > 3 }">
+                    <div class="step-indicator">
+                        <svg x-show="step > 3" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                        <span x-show="step <= 3">3</span>
+                    </div>
+                    <span data-i18n="analysis.running">Running analyzers...</span>
+                </div>
+                
+                <div class="status-step" :class="{ 'active': step >= 4, 'completed': step > 4 }">
+                    <div class="step-indicator">
+                        <svg x-show="step > 4" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                        <span x-show="step <= 4">4</span>
+                    </div>
+                    <span data-i18n="analysis.collecting">Collecting results...</span>
+                </div>
+                
+                <div class="status-step" :class="{ 'active': step >= 5 }">
+                    <div class="step-indicator">5</div>
+                    <span data-i18n="analysis.generating">Generating report...</span>
+                </div>
+            </div>
+            
+            <div class="progress-bar-container">
+                <div class="progress-bar">
+                    <div class="progress-fill" :style="`width: ${progress}%`"></div>
+                </div>
+                <span class="progress-text" x-text="`${progress}%`"></span>
+            </div>
+            
+            <p class="analysis-message" x-text="statusMessage"></p>
+        </div>
+    </div>
+</section>
+
+<script>
+function analysisPoller(analysisId) {
+    return {
+        step: 1,
+        progress: 0,
+        statusMessage: '',
+        
+        init() {
+            this.startPolling();
+        },
+        
+        startPolling() {
+            const steps = [
+                { progress: 20, message: i18n.t('analysis.preparing') },
+                { progress: 40, message: i18n.t('analysis.extracting') },
+                { progress: 60, message: i18n.t('analysis.running') },
+                { progress: 80, message: i18n.t('analysis.collecting') },
+                { progress: 100, message: i18n.t('analysis.completed') }
+            ];
+            
+            let currentStep = 0;
+            
+            const interval = setInterval(async () => {
+                if (currentStep < steps.length) {
+                    this.step = currentStep + 1;
+                    this.progress = steps[currentStep].progress;
+                    this.statusMessage = steps[currentStep].message;
+                    currentStep++;
+                }
+                
+                try {
+                    const response = await fetch(`/api/analysis/status/${analysisId}`);
+                    const data = await response.json();
+                    
+                    if (data.status === 'completed') {
+                        clearInterval(interval);
+                        this.step = 5;
+                        this.progress = 100;
+                        this.statusMessage = i18n.t('analysis.completed');
+                        
+                        setTimeout(() => {
+                            window.location.href = '/results/' + analysisId;
+                        }, 1000);
+                    }
+                } catch (err) {
+                    console.error('Polling error:', err);
+                }
+            }, 2000);
+        }
+    };
+}
+</script>
+{{end}}

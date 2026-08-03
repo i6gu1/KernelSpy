@@ -1,0 +1,277 @@
+{{template "layouts/base.html" .}}
+
+{{define "content"}}
+<section class="section results-section">
+    <div class="container">
+        {{if .HasResult}}
+        <div class="results-header animate-fade-in-up">
+            <h1 class="section-title" data-i18n="dashboard.title">Analysis Summary</h1>
+            <div class="results-actions">
+                <a href="/reports/{{.AnalysisID}}" class="btn-primary" data-i18n="reports.title">Download Report</a>
+            </div>
+        </div>
+        
+        <div class="stats-grid animate-fade-in-up">
+            <div class="stat-card card">
+                <div class="stat-icon security">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                    </svg>
+                </div>
+                <div class="stat-value" id="securityCount">{{len .Result.SecurityFindings}}</div>
+                <div class="stat-label" data-i18n="dashboard.securityFindings">Security Findings</div>
+            </div>
+            
+            <div class="stat-card card">
+                <div class="stat-icon quality">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="16 18 22 12 16 6"></polyline>
+                        <polyline points="8 6 2 12 8 18"></polyline>
+                    </svg>
+                </div>
+                <div class="stat-value" id="qualityCount">{{len .Result.QualityFindings}}</div>
+                <div class="stat-label" data-i18n="dashboard.qualityIssues">Code Quality Issues</div>
+            </div>
+            
+            <div class="stat-card card">
+                <div class="stat-icon dependency">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                    </svg>
+                </div>
+                <div class="stat-value" id="depCount">{{len .Result.DependencyVulns}}</div>
+                <div class="stat-label" data-i18n="dashboard.dependencyVulns">Dependency Vulnerabilities</div>
+            </div>
+            
+            <div class="stat-card card">
+                <div class="stat-icon files">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                        <polyline points="14 2 14 8 20 8"></polyline>
+                    </svg>
+                </div>
+                <div class="stat-value" id="filesCount">{{.Result.FilesScanned}}</div>
+                <div class="stat-label" data-i18n="dashboard.filesScanned">Files Scanned</div>
+            </div>
+            
+            <div class="stat-card card">
+                <div class="stat-icon languages">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="2" y1="12" x2="22" y2="12"></line>
+                        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                    </svg>
+                </div>
+                <div class="stat-value" id="langCount">{{len .Result.LanguagesDetected}}</div>
+                <div class="stat-label" data-i18n="dashboard.supportedLanguages">Supported Languages</div>
+            </div>
+            
+            <div class="stat-card card">
+                <div class="stat-icon duration">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <polyline points="12 6 12 12 16 14"></polyline>
+                    </svg>
+                </div>
+                <div class="stat-value" id="duration">{{.Result.DurationSeconds}}s</div>
+                <div class="stat-label" data-i18n="dashboard.analysisDuration">Analysis Duration</div>
+            </div>
+        </div>
+        
+        {{if .Result.SecurityFindings}}
+        <div class="results-section animate-fade-in-up">
+            <h2 class="section-subtitle" data-i18n="security.title">Security Findings</h2>
+            <p class="section-description" data-i18n="security.possibleIssues">Possible Security Issues</p>
+            
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th data-i18n="security.columns.rule">Rule</th>
+                            <th data-i18n="security.columns.file">File</th>
+                            <th data-i18n="security.columns.line">Line</th>
+                            <th data-i18n="security.columns.severity">Severity</th>
+                            <th data-i18n="security.columns.description">Description</th>
+                            <th data-i18n="security.columns.recommendation">Recommendation</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .Result.SecurityFindings}}
+                        <tr>
+                            <td><code>{{.Rule}}</code></td>
+                            <td><code>{{.FilePath}}</code></td>
+                            <td>{{.LineNumber}}</td>
+                            <td><span class="badge badge-{{.Severity}}" data-i18n="security.severity.{{.Severity}}">{{.Severity}}</span></td>
+                            <td>{{.Description}}</td>
+                            <td>{{.Recommendation}}</td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {{end}}
+        
+        {{if .Result.QualityFindings}}
+        <div class="results-section animate-fade-in-up">
+            <h2 class="section-subtitle" data-i18n="quality.title">Code Quality</h2>
+            
+            <div class="quality-metrics">
+                <div class="metric-item">
+                    <span class="metric-label" data-i18n="quality.metrics.duplicated">Duplicated Code</span>
+                    <span class="metric-value">{{.Result.QualityMetrics.DuplicatedCode}}</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label" data-i18n="quality.metrics.unusedImports">Unused Imports</span>
+                    <span class="metric-value">{{.Result.QualityMetrics.UnusedImports}}</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label" data-i18n="quality.metrics.unusedVars">Unused Variables</span>
+                    <span class="metric-value">{{.Result.QualityMetrics.UnusedVars}}</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label" data-i18n="quality.metrics.deadCode">Dead Code</span>
+                    <span class="metric-value">{{.Result.QualityMetrics.DeadCode}}</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label" data-i18n="quality.metrics.longFunctions">Long Functions</span>
+                    <span class="metric-value">{{.Result.QualityMetrics.LongFunctions}}</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label" data-i18n="quality.metrics.largeFiles">Large Files</span>
+                    <span class="metric-value">{{.Result.QualityMetrics.LargeFiles}}</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label" data-i18n="quality.metrics.complexFunctions">Complex Functions</span>
+                    <span class="metric-value">{{.Result.QualityMetrics.ComplexFunctions}}</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label" data-i18n="quality.metrics.styleIssues">Style Issues</span>
+                    <span class="metric-value">{{.Result.QualityMetrics.StyleIssues}}</span>
+                </div>
+            </div>
+            
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th data-i18n="security.columns.rule">Rule</th>
+                            <th data-i18n="security.columns.file">File</th>
+                            <th data-i18n="security.columns.line">Line</th>
+                            <th data-i18n="security.columns.severity">Severity</th>
+                            <th data-i18n="security.columns.description">Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .Result.QualityFindings}}
+                        <tr>
+                            <td><code>{{.Category}}</code></td>
+                            <td><code>{{.FilePath}}</code></td>
+                            <td>{{.LineNumber}}</td>
+                            <td><span class="badge badge-{{.Severity}}">{{.Severity}}</span></td>
+                            <td>{{.Description}}</td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {{end}}
+        
+        {{if .Result.DependencyVulns}}
+        <div class="results-section animate-fade-in-up">
+            <h2 class="section-subtitle" data-i18n="dependencies.title">Dependency Analysis</h2>
+            
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th data-i18n="dependencies.columns.package">Package</th>
+                            <th data-i18n="dependencies.columns.installed">Installed Version</th>
+                            <th data-i18n="dependencies.columns.patched">Patched Version</th>
+                            <th data-i18n="dependencies.columns.severity">Severity</th>
+                            <th data-i18n="dependencies.columns.reference">Reference</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .Result.DependencyVulns}}
+                        <tr>
+                            <td><code>{{.PackageName}}</code></td>
+                            <td>{{.InstalledVersion}}</td>
+                            <td>{{.PatchedVersion}}</td>
+                            <td><span class="badge badge-{{.Severity}}">{{.Severity}}</span></td>
+                            <td><a href="{{.ReferenceURL}}" target="_blank" rel="noopener noreferrer">Link</a></td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {{end}}
+        
+        <div class="results-section animate-fade-in-up">
+            <h2 class="section-subtitle" data-i18n="projectInfo.title">Project Information</h2>
+            
+            <div class="project-info-grid">
+                <div class="info-item">
+                    <span class="info-label" data-i18n="projectInfo.totalFiles">Total Files</span>
+                    <span class="info-value">{{.Result.ProjectInfo.TotalFiles}}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label" data-i18n="projectInfo.totalLines">Total Lines of Code</span>
+                    <span class="info-value">{{.Result.ProjectInfo.TotalLines}}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label" data-i18n="projectInfo.languages">Programming Languages</span>
+                    <span class="info-value">{{range .Result.LanguagesDetected}}{{.}} {{end}}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label" data-i18n="projectInfo.frameworks">Framework Detection</span>
+                    <span class="info-value">{{range .Result.FrameworksDetected}}{{.}} {{end}}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label" data-i18n="projectInfo.configFiles">Configuration Files</span>
+                    <span class="info-value">{{len .Result.ProjectInfo.ConfigFiles}}</span>
+                </div>
+            </div>
+            
+            {{if .Result.ProjectInfo.LargestFiles}}
+            <h3 data-i18n="projectInfo.largestFiles">Largest Files</h3>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>File</th>
+                            <th>Lines</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .Result.ProjectInfo.LargestFiles}}
+                        <tr>
+                            <td><code>{{.Path}}</code></td>
+                            <td>{{.Lines}}</td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+            {{end}}
+        </div>
+        
+        {{else}}
+        <div class="empty-state animate-fade-in-up">
+            <div class="empty-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="8" x2="12" y2="12"></line>
+                    <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                </svg>
+            </div>
+            <h2 data-i18n="empty.title">No analysis available.</h2>
+            <p data-i18n="empty.description">Upload a project to begin.</p>
+            <a href="/upload" class="btn-primary" data-i18n="nav.upload">Upload</a>
+        </div>
+        {{end}}
+    </div>
+</section>
+{{end}}
