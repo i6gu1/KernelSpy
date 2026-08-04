@@ -15,8 +15,6 @@ FROM alpine:latest
 
 RUN apk --no-cache add ca-certificates
 
-RUN apk add --no-cache git
-
 WORKDIR /root/
 
 COPY --from=builder /app/black-hat .
