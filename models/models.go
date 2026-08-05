@@ -23,7 +23,7 @@ type Analysis struct {
 	DurationSeconds   int        `json:"duration_seconds"`
 	FilesScanned      int        `json:"files_scanned"`
 	LanguagesDetected []string   `json:"languages_detected"`
-/FrameworksDetected []string   `json:"frameworks_detected"`
+FrameworksDetected []string   `json:"frameworks_detected"`
 }
 
 type SecurityFinding struct {
