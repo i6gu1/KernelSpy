@@ -56,7 +56,6 @@ func main() {
 	app := fiber.New(fiber.Config{
 		AppName:      "Black Hat",
 		ServerHeader: "Black Hat",
-		Views:        tmpl,
 	})
 
 	app.Use(logger.New())
