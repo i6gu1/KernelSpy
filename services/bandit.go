@@ -19,12 +19,12 @@ func (b *BanditRunner) Run(projectPath string) ([]models.QualityFinding, models.
 	cmd := exec.Command("bandit", "-r", projectPath, "-f", "json", "-q")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return b.generateDefaultFindings(projectPath), metrics
+		return b.generateDefaultFindings(projectPath)
 	}
 
 	outputStr := string(output)
 	if !strings.Contains(outputStr, "results") {
-		return b.generateDefaultFindings(projectPath), metrics
+		return b.generateDefaultFindings(projectPath)
 	}
 
 	parts := strings.Split(outputStr, "\"issue_text\":")

@@ -19,12 +19,12 @@ func (p *PMDRunner) Run(projectPath string) ([]models.QualityFinding, models.Qua
 	cmd := exec.Command("pmd", "check", "-d", projectPath, "-R", "rulesets/java/quickstart.xml", "-f", "json", "--no-cache")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return p.generateDefaultFindings(projectPath), metrics
+		return p.generateDefaultFindings(projectPath)
 	}
 
 	outputStr := string(output)
 	if !strings.Contains(outputStr, "violation") {
-		return p.generateDefaultFindings(projectPath), metrics
+		return p.generateDefaultFindings(projectPath)
 	}
 
 	parts := strings.Split(outputStr, "\"description\":")

@@ -19,6 +19,8 @@ go.work
 .env
 .env.local
 
+tt.txt
+
 uploads/*
 !uploads/.gitkeep
 

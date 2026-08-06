@@ -3,6 +3,7 @@ package services
 import (
 	"black-hat/models"
 	"os/exec"
+	"strconv"
 	"strings"
 )
 
@@ -19,12 +20,12 @@ func (e *ESLintRunner) Run(projectPath string) ([]models.QualityFinding, models.
 	cmd := exec.Command("npx", "eslint", "--format", "json", "--quiet", projectPath)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return e.generateDefaultFindings(projectPath), metrics
+		return e.generateDefaultFindings(projectPath)
 	}
 
 	outputStr := string(output)
 	if !strings.Contains(outputStr, "messages") {
-		return e.generateDefaultFindings(projectPath), metrics
+		return e.generateDefaultFindings(projectPath)
 	}
 
 	fileParts := strings.Split(outputStr, "\"filePath\":")
@@ -79,7 +80,7 @@ func (e *ESLintRunner) generateDefaultFindings(projectPath string) ([]models.Qua
 			findings = append(findings, models.QualityFinding{
 				Tool:        "eslint",
 				FilePath:    file,
-				Description: "File is too large (" + strings.TrimSpace(string(rune(totalLines))) + " lines)",
+				Description: "File is too large (" + strconv.Itoa(totalLines) + " lines)",
 				Category:    "large_file",
 				Severity:    "low",
 			})

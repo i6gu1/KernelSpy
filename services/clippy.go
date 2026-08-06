@@ -20,7 +20,7 @@ func (c *ClippyRunner) Run(projectPath string) ([]models.QualityFinding, models.
 	cmd.Dir = projectPath
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return c.generateDefaultFindings(projectPath), metrics
+		return c.generateDefaultFindings(projectPath)
 	}
 
 	outputStr := string(output)

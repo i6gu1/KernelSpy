@@ -19,12 +19,12 @@ func (g *GolangCIRunner) Run(projectPath string) ([]models.QualityFinding, model
 	cmd := exec.Command("golangci-lint", "run", "--out-format", "json", projectPath+"/...")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return g.generateDefaultFindings(projectPath), metrics
+		return g.generateDefaultFindings(projectPath)
 	}
 
 	outputStr := string(output)
 	if !strings.Contains(outputStr, "Issues") {
-		return g.generateDefaultFindings(projectPath), metrics
+		return g.generateDefaultFindings(projectPath)
 	}
 
 	parts := strings.Split(outputStr, "\"Text\":")

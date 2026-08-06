@@ -19,12 +19,12 @@ func (p *PHPStanRunner) Run(projectPath string) ([]models.QualityFinding, models
 	cmd := exec.Command("phpstan", "analyse", projectPath, "--format=json", "--no-progress")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return p.generateDefaultFindings(projectPath), metrics
+		return p.generateDefaultFindings(projectPath)
 	}
 
 	outputStr := string(output)
 	if !strings.Contains(outputStr, "messages") {
-		return p.generateDefaultFindings(projectPath), metrics
+		return p.generateDefaultFindings(projectPath)
 	}
 
 	fileParts := strings.Split(outputStr, "\"file\":")

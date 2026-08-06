@@ -20,21 +20,6 @@ func (r *Reporter) GenerateJSON(result *models.AnalysisResult) ([]byte, error) {
 }
 
 func (r *Reporter) GenerateHTML(result *models.AnalysisResult, lang string) string {
-	severityColor := func(sev string) string {
-		switch sev {
-		case "critical":
-			return "#ff0000"
-		case "high":
-			return "#ff6600"
-		case "medium":
-			return "#ffcc00"
-		case "low":
-			return "#0066ff"
-		default:
-			return "#666666"
-		}
-	}
-
 	var sb strings.Builder
 	sb.WriteString("<!DOCTYPE html>\n<html lang=\"" + lang + "\">\n<head>\n")
 	sb.WriteString("<meta charset=\"UTF-8\">\n")

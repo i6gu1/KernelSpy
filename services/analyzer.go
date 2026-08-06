@@ -68,7 +68,7 @@ func (a *Analyzer) AnalyzeProject(projectPath string) (*models.AnalysisResult, e
 	semWg.Add(1)
 	go func() {
 		defer semWg.Done()
-		results := a.segrep.Run(projectPath)
+		results := a.semgrep.Run(projectPath)
 		mu.Lock()
 		securityFindings = append(securityFindings, results...)
 		mu.Unlock()

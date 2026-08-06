@@ -42,10 +42,6 @@ func (t *TrivyRunner) Run(projectPath string) []models.DependencyVulnerability {
 				PackageName:      extractJSONValue(entry, "PkgName"),
 			}
 			vuln.ReferenceURL = extractJSONValue(entry, "PrimaryURL")
-			vuln.Description = extractJSONValue(entry, "Title")
-			if vuln.Description == "" {
-				vuln.Description = "Vulnerability detected in dependency"
-			}
 			sev := strings.ToUpper(extractJSONValue(entry, "Severity"))
 			switch sev {
 			case "CRITICAL":
