@@ -23,8 +23,8 @@ func init() {
 		},
 	}
 
-	templates = template.Must(template.New("").Funcs(funcMap).ParseGlob("templates/**/*.html"))
-	templates = template.Must(templates.ParseGlob("templates/*.html"))
+	files := getTemplateFiles("templates")
+	templates = template.Must(template.New("").Funcs(funcMap).ParseFiles(files...))
 }
 
 func RenderTemplate(c *fiber.Ctx, templateName string, data map[string]interface{}) error {

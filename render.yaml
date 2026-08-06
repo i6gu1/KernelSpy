@@ -8,10 +8,6 @@ services:
         fromDatabase:
           name: black-hat-db
           property: connectionString
-      - key: REDIS_URL
-        fromDatabase:
-          name: black-hat-redis
-          property: connectionString
       - key: PORT
         value: 3000
     healthCheckPath: /health
@@ -22,6 +18,3 @@ databases:
     plan: starter
     databaseName: blackhat
     user: blackhat
-    
-  - name: black-hat-redis
-    plan: starter

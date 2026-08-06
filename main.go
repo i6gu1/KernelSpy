@@ -1,10 +1,8 @@
 package main
 
 import (
-	"html/template"
 	"log"
 	"os"
-	"strings"
 
 	"black-hat/config"
 	"black-hat/database"
@@ -17,22 +15,6 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 )
-
-var tmpl *template.Template
-
-func init() {
-	funcMap := template.FuncMap{
-		"t": func(lang, key string) string {
-			return i18n.GetInstance().Translate(lang, key)
-		},
-		"raw": func(s string) template.HTML {
-			return template.HTML(s)
-		},
-	}
-
-	tmpl = template.Must(template.New("").Funcs(funcMap).ParseGlob("templates/**/*.html"))
-	tmpl = template.Must(tmpl.ParseGlob("templates/*.html"))
-}
 
 func main() {
 	cfg := config.Load()
@@ -77,39 +59,4 @@ func main() {
 
 	log.Printf("Black Hat starting on port %s", port)
 	log.Fatal(app.Listen(":" + port))
-}
-
-func getLanguageFromCookie(c *fiber.Ctx) string {
-	lang := c.Cookies("lang")
-	if lang != "" && isValidLang(lang) {
-		return lang
-	}
-	return "en"
-}
-
-func isValidLang(lang string) bool {
-	validLangs := []string{"en", "ar", "ru", "fr", "es"}
-	for _, l := range validLangs {
-		if l == lang {
-			return true
-		}
-	}
-	return false
-}
-
-func getTemplateFiles(dir string) []string {
-	var files []string
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return files
-	}
-	for _, entry := range entries {
-		if entry.IsDir() {
-			subFiles := getTemplateFiles(dir + "/" + entry.Name())
-			files = append(files, subFiles...)
-		} else if strings.HasSuffix(entry.Name(), ".html") {
-			files = append(files, dir+"/"+entry.Name())
-		}
-	}
-	return files
 }
