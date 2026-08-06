@@ -44,7 +44,7 @@ func RenderTemplate(c *fiber.Ctx, templateName string, data map[string]interface
 	data["Dir"] = dir
 	data["CurrentPage"] = templateName
 
-	return templates.ExecuteTemplate(c.Context().Response().Writer(), templateName, data)
+	return templates.ExecuteTemplate(c.Context().Response().Writer(), templateName+".html", data)
 }
 
 func RegisterRoutes(app *fiber.App) {

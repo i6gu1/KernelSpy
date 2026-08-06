@@ -16,12 +16,12 @@
     <script src="/static/js/app.js"></script>
 </head>
 <body>
-    {{template "header" .}}
-    
+    {{template "header.html" .}}
+
     <main>
         {{block "content" .}}{{end}}
     </main>
-    
-    {{template "footer" .}}
+
+    {{template "footer.html" .}}
 </body>
 </html>
