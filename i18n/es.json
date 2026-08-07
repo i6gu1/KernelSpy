@@ -4,13 +4,11 @@
     "nav.howItWorks": "Cómo funciona",
     "nav.upload": "Subir",
     "nav.dashboard": "Panel de control",
-    
     "hero.title": "Analiza tu código. Mejora la calidad. Detecta riesgos.",
     "hero.description": "Sube tu proyecto o conecta un repositorio Git para analizar la calidad del código, problemas de seguridad, vulnerabilidades de dependencias y la estructura del proyecto utilizando herramientas de análisis confiables.",
     "hero.analyzeProject": "Analizar proyecto",
     "hero.connectRepo": "Conectar repositorio",
     "hero.viewSample": "Ver informe de ejemplo",
-    
     "features.title": "Características",
     "features.security.title": "Análisis de seguridad",
     "features.security.description": "Escanear tu proyecto en busca de problemas de seguridad comunes, secretos expuestos y vulnerabilidades conocidas de dependencias.",
@@ -20,8 +18,8 @@
     "features.dependency.description": "Revisar paquetes de terceros y detectar vulnerabilidades públicamente conocidas.",
     "features.reports.title": "Informes",
     "features.reports.description": "Exportar informes detallados en formatos PDF, HTML o JSON.",
-    
     "howItWorks.title": "Cómo funciona",
+    "howItWorks.subtitle": "Sube tu proyecto, nuestro motor impulsado por IA lo analiza y recibes un informe de seguridad completo — en minutos.",
     "howItWorks.step1.title": "Paso 1",
     "howItWorks.step1.description": "Sube un archivo ZIP o conecta tu repositorio.",
     "howItWorks.step2.title": "Paso 2",
@@ -30,14 +28,12 @@
     "howItWorks.step3.description": "Los resultados se recopilan en un solo informe.",
     "howItWorks.step4.title": "Paso 4",
     "howItWorks.step4.description": "Revisa los hallazgos y prioriza las mejoras.",
-    
     "upload.title": "Subir proyecto",
     "upload.dragDrop": "Arrastra y suelta tu archivo ZIP aquí",
     "upload.or": "o",
     "upload.chooseFile": "Seleccionar archivo",
     "upload.maxSize": "Tamaño máximo: 50 MB",
     "upload.supportedFormat": "Formato soportado: ZIP",
-    
     "analysis.title": "Análisis del proyecto",
     "analysis.preparing": "Preparando...",
     "analysis.extracting": "Extrayendo proyecto...",
@@ -45,7 +41,6 @@
     "analysis.collecting": "Recopilando resultados...",
     "analysis.generating": "Generando informe...",
     "analysis.completed": "Análisis completado.",
-    
     "dashboard.title": "Resumen del análisis",
     "dashboard.securityFindings": "Hallazgos de seguridad",
     "dashboard.qualityIssues": "Problemas de calidad del código",
@@ -53,7 +48,6 @@
     "dashboard.filesScanned": "Archivos escaneados",
     "dashboard.supportedLanguages": "Lenguajes soportados",
     "dashboard.analysisDuration": "Duración del análisis",
-    
     "security.title": "Hallazgos de seguridad",
     "security.possibleIssues": "Posibles problemas de seguridad",
     "security.severity.critical": "Crítico",
@@ -67,7 +61,6 @@
     "security.columns.severity": "Gravedad",
     "security.columns.description": "Descripción",
     "security.columns.recommendation": "Recomendación",
-    
     "quality.title": "Calidad del código",
     "quality.maintainability": "Mantenibilidad",
     "quality.metrics.duplicated": "Código duplicado",
@@ -78,14 +71,12 @@
     "quality.metrics.largeFiles": "Archivos grandes",
     "quality.metrics.complexFunctions": "Funciones complejas",
     "quality.metrics.styleIssues": "Problemas de estilo",
-    
     "dependencies.title": "Análisis de dependencias",
     "dependencies.columns.package": "Paquete",
     "dependencies.columns.installed": "Versión instalada",
     "dependencies.columns.patched": "Versión corregida",
     "dependencies.columns.severity": "Gravedad",
     "dependencies.columns.reference": "Referencia",
-    
     "projectInfo.title": "Información del proyecto",
     "projectInfo.structure": "Estructura del proyecto",
     "projectInfo.languages": "Lenguajes de programación",
@@ -94,25 +85,20 @@
     "projectInfo.totalFiles": "Total de archivos",
     "projectInfo.totalLines": "Total de líneas de código",
     "projectInfo.largestFiles": "Archivos más grandes",
-    
     "reports.title": "Descargar informe",
     "reports.pdf": "Exportar como PDF",
     "reports.html": "Exportar como HTML",
     "reports.json": "Exportar como JSON",
-    
     "empty.title": "No hay análisis disponible.",
     "empty.description": "Sube un proyecto para comenzar.",
-    
     "errors.uploadFailed": "Error al subir.",
     "errors.unsupportedArchive": "Archivo no soportado.",
     "errors.analysisFailed": "Error en el análisis.",
     "errors.unableToAnalyze": "No se pudo analizar el proyecto.",
     "errors.tryAgain": "Por favor, intenta de nuevo más tarde.",
-    
     "success.uploaded": "Proyecto subido exitosamente.",
     "success.analysisCompleted": "Análisis completado exitosamente.",
     "success.reportGenerated": "Informe generado exitosamente.",
-    
     "footer.tagline": "Diseñado para desarrolladores.",
     "footer.poweredBy": "Impulsado por herramientas de análisis estático confiables.",
     "footer.privacy": "Privacidad primero.",
@@ -124,5 +110,7 @@
     "footer.openSource": "Proyecto de código abierto",
     "footer.github": "GitHub",
     "footer.email": "Email",
-    "footer.instagram": "Instagram"
+    "footer.instagram": "Instagram",
+    "dashboard.summary": "Security Report",
+    "dashboard.suggestions": "Improvement Suggestions"
 }

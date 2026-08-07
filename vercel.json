@@ -1,0 +1,16 @@
+{
+  "services": {
+    "blackhat": {
+      "root": ".",
+      "entrypoint": "Dockerfile.vercel"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": {
+        "service": "blackhat"
+      }
+    }
+  ]
+}

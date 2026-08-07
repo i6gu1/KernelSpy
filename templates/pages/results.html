@@ -4,13 +4,40 @@
 <section class="section results-section">
     <div class="container">
         {{if .HasResult}}
+        {{if .Result.Error}}
+        <div class="analysis-error animate-fade-in-up">
+            <h2 data-i18n="errors.analysisFailed">Analysis failed</h2>
+            <p>{{.Result.Error}}</p>
+            <a href="/upload" class="btn-primary">Try Again</a>
+        </div>
+        {{else}}
         <div class="results-header animate-fade-in-up">
             <h1 class="section-title" data-i18n="dashboard.title">Analysis Summary</h1>
             <div class="results-actions">
                 <a href="/reports/{{.AnalysisID}}" class="btn-primary" data-i18n="reports.title">Download Report</a>
             </div>
         </div>
-        
+
+        {{if .Result.Summary}}
+        <div class="results-section animate-fade-in-up">
+            <h2 class="section-subtitle" data-i18n="dashboard.summary">Security Report</h2>
+            <div class="ai-summary card">
+                <p>{{.Result.Summary}}</p>
+            </div>
+        </div>
+        {{end}}
+
+        {{if .Result.Suggestions}}
+        <div class="results-section animate-fade-in-up">
+            <h2 class="section-subtitle" data-i18n="dashboard.suggestions">Improvement Suggestions</h2>
+            <ul class="suggestions-list">
+                {{range .Result.Suggestions}}
+                <li class="card suggestion-item">{{.}}</li>
+                {{end}}
+            </ul>
+        </div>
+        {{end}}
+
         <div class="stats-grid animate-fade-in-up">
             <div class="stat-card card">
                 <div class="stat-icon security">
@@ -257,6 +284,7 @@
             </div>
             {{end}}
         </div>
+        {{end}}
         
         {{else}}
         <div class="empty-state animate-fade-in-up">

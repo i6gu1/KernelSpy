@@ -4,13 +4,11 @@
     "nav.howItWorks": "Как это работает",
     "nav.upload": "Загрузить",
     "nav.dashboard": "Панель управления",
-    
     "hero.title": "Анализируйте код. Улучшайте качество. Обнаруживайте риски.",
     "hero.description": "Загрузите проект или подключите репозиторий Git для анализа качества кода, проблем безопасности, уязвимостей зависимостей и структуры проекта с использованием проверенных инструментов анализа.",
     "hero.analyzeProject": "Анализировать проект",
     "hero.connectRepo": "Подключить репозиторий",
     "hero.viewSample": "Посмотреть пример отчёта",
-    
     "features.title": "Возможности",
     "features.security.title": "Анализ безопасности",
     "features.security.description": "Сканирование проекта на наличие распространённых проблем безопасности, открытых секретов и известных уязвимостей зависимостей.",
@@ -20,8 +18,8 @@
     "features.dependency.description": "Проверка сторонних пакетов и обнаружение публично известных уязвимостей.",
     "features.reports.title": "Отчёты",
     "features.reports.description": "Экспорт подробных отчётов в форматах PDF, HTML или JSON.",
-    
     "howItWorks.title": "Как это работает",
+    "howItWorks.subtitle": "Загрузите проект, наш движок на базе ИИ проанализирует его, и вы получите полный отчёт о безопасности — за считанные минуты.",
     "howItWorks.step1.title": "Шаг 1",
     "howItWorks.step1.description": "Загрузите архив ZIP или подключите свой репозиторий.",
     "howItWorks.step2.title": "Шаг 2",
@@ -30,14 +28,12 @@
     "howItWorks.step3.description": "Результаты собираются в один отчёт.",
     "howItWorks.step4.title": "Шаг 4",
     "howItWorks.step4.description": "Просмотрите результаты и определите приоритеты улучшений.",
-    
     "upload.title": "Загрузка проекта",
     "upload.dragDrop": "Перетащите архив ZIP сюда",
     "upload.or": "или",
     "upload.chooseFile": "Выберите файл",
     "upload.maxSize": "Максимальный размер: 50 МБ",
     "upload.supportedFormat": "Поддерживаемый формат: ZIP",
-    
     "analysis.title": "Анализ проекта",
     "analysis.preparing": "Подготовка...",
     "analysis.extracting": "Извлечение проекта...",
@@ -45,7 +41,6 @@
     "analysis.collecting": "Сбор результатов...",
     "analysis.generating": "Создание отчёта...",
     "analysis.completed": "Анализ завершён.",
-    
     "dashboard.title": "Сводка анализа",
     "dashboard.securityFindings": "Результаты безопасности",
     "dashboard.qualityIssues": "Проблемы качества кода",
@@ -53,7 +48,6 @@
     "dashboard.filesScanned": "Просканированные файлы",
     "dashboard.supportedLanguages": "Поддерживаемые языки",
     "dashboard.analysisDuration": "Длительность анализа",
-    
     "security.title": "Результаты безопасности",
     "security.possibleIssues": "Возможные проблемы безопасности",
     "security.severity.critical": "Критический",
@@ -67,7 +61,6 @@
     "security.columns.severity": "Серьёзность",
     "security.columns.description": "Описание",
     "security.columns.recommendation": "Рекомендация",
-    
     "quality.title": "Качество кода",
     "quality.maintainability": "Поддерживаемость",
     "quality.metrics.duplicated": "Дублированный код",
@@ -78,14 +71,12 @@
     "quality.metrics.largeFiles": "Большие файлы",
     "quality.metrics.complexFunctions": "Сложные функции",
     "quality.metrics.styleIssues": "Проблемы стиля",
-    
     "dependencies.title": "Анализ зависимостей",
     "dependencies.columns.package": "Пакет",
     "dependencies.columns.installed": "Установленная версия",
     "dependencies.columns.patched": "Исправленная версия",
     "dependencies.columns.severity": "Серьёзность",
     "dependencies.columns.reference": "Ссылка",
-    
     "projectInfo.title": "Информация о проекте",
     "projectInfo.structure": "Структура проекта",
     "projectInfo.languages": "Языки программирования",
@@ -94,25 +85,20 @@
     "projectInfo.totalFiles": "Всего файлов",
     "projectInfo.totalLines": "Всего строк кода",
     "projectInfo.largestFiles": "Крупнейшие файлы",
-    
     "reports.title": "Скачать отчёт",
     "reports.pdf": "Экспорт в PDF",
     "reports.html": "Экспорт в HTML",
     "reports.json": "Экспорт в JSON",
-    
     "empty.title": "Анализ недоступен.",
     "empty.description": "Загрузите проект для начала.",
-    
     "errors.uploadFailed": "Ошибка загрузки.",
     "errors.unsupportedArchive": "Неподдерживаемый архив.",
     "errors.analysisFailed": "Ошибка анализа.",
     "errors.unableToAnalyze": "Не удалось проанализировать проект.",
     "errors.tryAgain": "Пожалуйста, попробуйте позже.",
-    
     "success.uploaded": "Проект успешно загружен.",
     "success.analysisCompleted": "Анализ успешно завершён.",
     "success.reportGenerated": "Отчёт успешно создан.",
-    
     "footer.tagline": "Создано для разработчиков.",
     "footer.poweredBy": "Работает на проверенных инструментах статического анализа.",
     "footer.privacy": "Конфиденциальность прежде всего.",
@@ -124,5 +110,10 @@
     "footer.openSource": "Открытый исходный код",
     "footer.github": "GitHub",
     "footer.email": "Email",
-    "footer.instagram": "Instagram"
+    "footer.instagram": "Instagram",
+    "dashboard.summary": "Security Report",
+    "dashboard.suggestions": "Improvement Suggestions",
+    "hero.badge.ai": "ИИ-движок",
+    "hero.badge.zero": "Нулевое доверие",
+    "howItWorks.badge": "ИИ-наблюдение"
 }

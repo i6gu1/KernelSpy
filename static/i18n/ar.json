@@ -4,13 +4,11 @@
     "nav.howItWorks": "كيف يعمل",
     "nav.upload": "رفع مشروع",
     "nav.dashboard": "لوحة التحكم",
-    
     "hero.title": "حلل كودك. حسّن الجودة. اكتشف المخاطر.",
     "hero.description": "ارفع مشروعك أو اربط مستودع Git لتحليل جودة الكود، مشاكل الأمان، ثغرات التبعيات، وهيكل المشروع باستخدام أدوات تحليل موثوقة.",
     "hero.analyzeProject": "تحليل المشروع",
     "hero.connectRepo": "ربط المستودع",
     "hero.viewSample": "عرض تقرير تجريبي",
-    
     "features.title": "المميزات",
     "features.security.title": "تحليل الأمان",
     "features.security.description": "فحص مشروعك بحثاً عن مشاكل الأمان الشائعة، الأسرار المكشوفة، وثغرات التبعيات المعروفة.",
@@ -20,8 +18,8 @@
     "features.dependency.description": "مراجعة الحزم الخارجية واكتشاف الثغرات المعروفة علنياً.",
     "features.reports.title": "التقارير",
     "features.reports.description": "تصدير تقارير مفصلة بصيغ PDF أو HTML أو JSON.",
-    
     "howItWorks.title": "كيف يعمل",
+    "howItWorks.subtitle": "ارفع مشروعك، يقوم محركنا المدعوم بالذكاء الاصطناعي بتحليله، وتحصل على تقرير أمني شامل — في دقائق.",
     "howItWorks.step1.title": "الخطوة 1",
     "howItWorks.step1.description": "ارفع أرشيف ZIP أو اربط مستودعك.",
     "howItWorks.step2.title": "الخطوة 2",
@@ -30,14 +28,12 @@
     "howItWorks.step3.description": "تُجمع النتائج في تقرير واحد.",
     "howItWorks.step4.title": "الخطوة 4",
     "howItWorks.step4.description": "راجع النتائج وحدد أولويات التحسين.",
-    
     "upload.title": "رفع مشروع",
     "upload.dragDrop": "اسحب وأفلت أرشيف ZIP هنا",
     "upload.or": "أو",
     "upload.chooseFile": "اختر ملف",
     "upload.maxSize": "الحد الأقصى لحجم الرفع: 50 ميجابايت",
     "upload.supportedFormat": "صيغة الأرشيف المدعومة: ZIP",
-    
     "analysis.title": "تحليل المشروع",
     "analysis.preparing": "جاري التحضير...",
     "analysis.extracting": "جاري استخراج المشروع...",
@@ -45,7 +41,6 @@
     "analysis.collecting": "جاري جمع النتائج...",
     "analysis.generating": "جاري إنشاء التقرير...",
     "analysis.completed": "اكتمل التحليل.",
-    
     "dashboard.title": "ملخص التحليل",
     "dashboard.securityFindings": "نتائج الأمان",
     "dashboard.qualityIssues": "مشاكل جودة الكود",
@@ -53,7 +48,6 @@
     "dashboard.filesScanned": "الملفات المفحوصة",
     "dashboard.supportedLanguages": "اللغات المدعومة",
     "dashboard.analysisDuration": "مدة التحليل",
-    
     "security.title": "نتائج الأمان",
     "security.possibleIssues": "مشاكل أمنية محتملة",
     "security.severity.critical": "حرج",
@@ -67,7 +61,6 @@
     "security.columns.severity": "الخطورة",
     "security.columns.description": "الوصف",
     "security.columns.recommendation": "التوصية",
-    
     "quality.title": "جودة الكود",
     "quality.maintainability": "قابلية الصيانة",
     "quality.metrics.duplicated": "كود مكرر",
@@ -78,14 +71,12 @@
     "quality.metrics.largeFiles": "ملفات كبيرة",
     "quality.metrics.complexFunctions": "دوال معقدة",
     "quality.metrics.styleIssues": "مشاكل الأسلوب",
-    
     "dependencies.title": "تحليل التبعيات",
     "dependencies.columns.package": "الحزمة",
     "dependencies.columns.installed": "الإصدار المثبت",
     "dependencies.columns.patched": "الإصدار المُصحح",
     "dependencies.columns.severity": "الخطورة",
     "dependencies.columns.reference": "المرجع",
-    
     "projectInfo.title": "معلومات المشروع",
     "projectInfo.structure": "هيكل المشروع",
     "projectInfo.languages": "لغات البرمجة",
@@ -94,25 +85,20 @@
     "projectInfo.totalFiles": "إجمالي الملفات",
     "projectInfo.totalLines": "إجمالي أسطر الكود",
     "projectInfo.largestFiles": "الملفات الأكبر",
-    
     "reports.title": "تحميل التقرير",
     "reports.pdf": "تصدير كـ PDF",
     "reports.html": "تصدير كـ HTML",
     "reports.json": "تصدير كـ JSON",
-    
     "empty.title": "لا يوجد تحليل متاح.",
     "empty.description": "ارفع مشروعًا للبدء.",
-    
     "errors.uploadFailed": "فشل الرفع.",
     "errors.unsupportedArchive": "أرشيف غير مدعوم.",
     "errors.analysisFailed": "فشل التحليل.",
     "errors.unableToAnalyze": "تعذر تحليل المشروع.",
     "errors.tryAgain": "يرجى المحاولة لاحقاً.",
-    
     "success.uploaded": "تم رفع المشروع بنجاح.",
     "success.analysisCompleted": "اكتمل التحليل بنجاح.",
     "success.reportGenerated": "تم إنشاء التقرير بنجاح.",
-    
     "footer.tagline": "صُمم للمطورين.",
     "footer.poweredBy": "مدعوم بأدوات تحليل ثابت موثوقة.",
     "footer.privacy": "الخصوصية أولاً.",
@@ -124,5 +110,10 @@
     "footer.openSource": "مشروع مفتوح المصدر",
     "footer.github": "جيت هاب",
     "footer.email": "البريد الإلكتروني",
-    "footer.instagram": "انستغرام"
+    "footer.instagram": "انستغرام",
+    "dashboard.summary": "Security Report",
+    "dashboard.suggestions": "Improvement Suggestions",
+    "hero.badge.ai": "محرك ذكاء اصطناعي",
+    "hero.badge.zero": "صفر ثقة",
+    "howItWorks.badge": "مراقبة الذكاء الاصطناعي"
 }

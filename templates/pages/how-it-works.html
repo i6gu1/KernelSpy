@@ -1,0 +1,34 @@
+{{template "base.html" .}}
+
+{{define "content"}}
+<section class="section page-hero">
+    <div class="container">
+        <div class="page-hero-grid">
+            <div class="page-hero-inner animate-fade-in-up">
+                <h1 class="section-title" data-i18n="howItWorks.title">How It Works</h1>
+                <p class="page-hero-description" data-i18n="howItWorks.subtitle">Upload your project, our AI-powered engine analyzes it, and you receive a comprehensive security report — in minutes.</p>
+            </div>
+            <div class="page-hero-visual animate-fade-in">
+                <div class="hud-frame">
+                    <img src="/static/ui/pic/hud-eye.jpg" alt="AI surveillance analysis" class="hud-img" loading="lazy" />
+                </div>
+                <div class="hero-chip hud-chip" data-i18n="howItWorks.badge">AI Surveillance</div>
+            </div>
+        </div>
+    </div>
+</section>
+
+{{template "how-it-works" .}}
+{{template "features" .}}
+
+<section class="section cta-section">
+    <div class="container">
+        <div class="cta-card card animate-fade-in-up">
+            <div class="cta-star-bg"><img src="/static/ui/pic/star.jpg" alt="" aria-hidden="true" /></div>
+            <h2 data-i18n="hero.analyzeProject">Analyze Project</h2>
+            <p data-i18n="hero.description">Upload your project to analyze code quality, security issues, dependency vulnerabilities, and project structure.</p>
+            <a href="/upload" class="btn-primary btn-lg" data-i18n="hero.analyzeProject">Analyze Project</a>
+        </div>
+    </div>
+</section>
+{{end}}

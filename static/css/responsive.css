@@ -18,6 +18,30 @@
         display: none;
     }
     
+    .page-hero-grid {
+        grid-template-columns: 1fr;
+        gap: 40px;
+        text-align: center;
+    }
+    
+    .page-hero-inner .section-title {
+        text-align: center;
+    }
+    
+    .page-hero-description {
+        margin-left: auto;
+        margin-right: auto;
+    }
+    
+    .page-hero-visual {
+        display: none;
+    }
+    
+    .cta-star-bg {
+        right: -120px;
+        opacity: 0.14;
+    }
+    
     .features-grid {
         grid-template-columns: repeat(2, 1fr);
     }

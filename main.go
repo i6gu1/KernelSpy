@@ -17,6 +17,8 @@ import (
 )
 
 func main() {
+	config.LoadEnvFile(".env.local")
+
 	cfg := config.Load()
 
 	i18n.GetInstance()
@@ -38,6 +40,9 @@ func main() {
 	app := fiber.New(fiber.Config{
 		AppName:      "Black Hat",
 		ServerHeader: "Black Hat",
+		// Vercel proxies all requests; use the forwarded header so IP-based
+		// rate limiting sees the real client, not the proxy.
+		ProxyHeader: "X-Forwarded-For",
 	})
 
 	app.Use(logger.New())

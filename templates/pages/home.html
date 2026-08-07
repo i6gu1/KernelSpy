@@ -1,14 +1,15 @@
 {{template "base.html" .}}
 
 {{define "content"}}
-{{template "hero.html" .}}
-{{template "features.html" .}}
-{{template "how-it-works.html" .}}
-{{template "stats.html" .}}
+{{template "hero" .}}
+{{template "features" .}}
+{{template "how-it-works" .}}
+{{template "stats" .}}
 
 <section class="section cta-section">
     <div class="container">
         <div class="cta-card card animate-fade-in-up">
+            <div class="cta-star-bg"><img src="/static/ui/pic/star.jpg" alt="" aria-hidden="true" /></div>
             <h2 data-i18n="hero.analyzeProject">Analyze Project</h2>
             <p data-i18n="hero.description">Upload your project or connect a Git repository to analyze code quality, security issues, dependency vulnerabilities, and project structure using trusted analysis tools.</p>
             <a href="/upload" class="btn-primary btn-lg" data-i18n="hero.analyzeProject">Analyze Project</a>

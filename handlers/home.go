@@ -7,11 +7,20 @@ import (
 	"strings"
 
 	"black-hat/i18n"
+	"black-hat/middleware"
 
 	"github.com/gofiber/fiber/v2"
 )
 
-var templates *template.Template
+var rateLimiter = middleware.NewScanRateLimiter()
+
+// templates holds one compiled template set per page. Every page file
+// defines its own {{"content"}} block, so pages must NOT be parsed into a
+// single shared set: Go's html/template lets the last-parsed definition of
+// a name win, which would make every route render the last page parsed.
+// Building a separate set per page (shared layout + partials + that page)
+// guarantees each page renders its own content.
+var templates = map[string]*template.Template{}
 
 func init() {
 	funcMap := template.FuncMap{
@@ -23,8 +32,17 @@ func init() {
 		},
 	}
 
-	files := getTemplateFiles("templates")
-	templates = template.Must(template.New("").Funcs(funcMap).ParseFiles(files...))
+	var shared []string
+	shared = append(shared, getTemplateFiles("templates/layouts")...)
+	shared = append(shared, getTemplateFiles("templates/components")...)
+	shared = append(shared, getTemplateFiles("templates/partials")...)
+
+	for _, page := range getTemplateFiles("templates/pages") {
+		name := strings.TrimSuffix(filepath.Base(page), ".html")
+		files := append([]string{}, shared...)
+		files = append(files, page)
+		templates[name] = template.Must(template.New("").Funcs(funcMap).ParseFiles(files...))
+	}
 }
 
 func RenderTemplate(c *fiber.Ctx, templateName string, data map[string]interface{}) error {
@@ -44,7 +62,13 @@ func RenderTemplate(c *fiber.Ctx, templateName string, data map[string]interface
 	data["Dir"] = dir
 	data["CurrentPage"] = templateName
 
-	return templates.ExecuteTemplate(c.Context().Response().Writer(), templateName+".html", data)
+	tmpl := templates[templateName]
+	if tmpl == nil {
+		return c.Status(500).SendString("template not found: " + templateName)
+	}
+
+	c.Set(fiber.HeaderContentType, fiber.MIMETextHTMLCharsetUTF8)
+	return tmpl.ExecuteTemplate(c.Context().Response.BodyWriter(), templateName+".html", data)
 }
 
 func RegisterRoutes(app *fiber.App) {
@@ -56,6 +80,9 @@ func RegisterRoutes(app *fiber.App) {
 	api := &APIHandler{}
 
 	app.Get("/", h.Home)
+	app.Get("/how-it-works", func(c *fiber.Ctx) error {
+		return RenderTemplate(c, "how-it-works", nil)
+	})
 	app.Get("/upload", u.UploadPage)
 	app.Get("/analysis/:id", a.AnalysisPage)
 	app.Get("/results/:id", d.ResultsPage)
@@ -65,7 +92,7 @@ func RegisterRoutes(app *fiber.App) {
 	})
 
 	apiGroup := app.Group("/api")
-	apiGroup.Post("/upload", u.Upload)
+	apiGroup.Post("/upload", rateLimiter.Limit, u.Upload)
 	apiGroup.Get("/analysis/status/:id", api.AnalysisStatus)
 	apiGroup.Get("/results/security/:id", api.SecurityResults)
 	apiGroup.Get("/results/quality/:id", api.QualityResults)

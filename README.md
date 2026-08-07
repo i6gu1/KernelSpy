@@ -81,7 +81,28 @@ MAX_UPLOAD_SIZE=52428800
 UPLOAD_DIR=./uploads
 ANALYSIS_TIMEOUT=600
 MAX_CONCURRENT_ANALYSES=5
+
+# AI-powered analysis (Gemini)
+# Get a key from https://aistudio.google.com/apikey (AQ. prefixed keys)
+# NEVER commit this file — .env.local is already gitignored.
+AI_API_KEY=your_gemini_api_key
+AI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
+AI_MODEL=gemini-2.0-flash
 ```
+
+> **Note:** Copy this block to a local `.env.local` file. The app reads it
+> automatically on startup (`config.LoadEnvFile(".env.local")`). On Vercel,
+> set the same variables in **Project Settings → Environment Variables**.
+> The API key is never shipped in the image or the repo.
+
+### AI Analysis
+
+When `AI_API_KEY` is set, the AI model reads the extracted project files and
+produces the full security report (vulnerabilities, quality issues, dependency
+risks, and improvement suggestions). It first calls the OpenAI-compatible
+endpoint and automatically falls back to Google's native `generateContent`
+endpoint, which is the reliable transport for the newer `AQ.`-prefixed Gemini
+keys.
 
 ## Project Structure
 
@@ -128,6 +149,33 @@ black-hat/
 
 ## Deployment
 
+### Vercel (Docker)
+
+This project deploys to Vercel as a Docker container (see `Dockerfile.vercel`
+and `vercel.json`).
+
+```bash
+# 1. Install the Vercel CLI (once)
+npm i -g vercel
+
+# 2. Log in and link the project to the existing Vercel project
+vercel login
+vercel link
+
+# 3. Set environment variables in the dashboard OR via CLI:
+vercel env add AI_API_KEY
+vercel env add AI_BASE_URL
+vercel env add AI_MODEL
+# (repeat for production: vercel env add AI_API_KEY production)
+
+# 4. Deploy a preview / production
+vercel
+vercel --prod
+```
+
+Every `git push` to the `main` branch also auto-redeploys the production
+environment when the GitHub integration is enabled.
+
 ### Render.com
 
 1. Connect your GitHub repository
@@ -160,4 +208,4 @@ Developed by **The L house**:
 
 - GitHub: [i6gu1](https://github.com/i6gu1/Black-hat)
 - Email: nvapps@proton.me
-- Instagram: [@izgu_](https://instagram.com/izgu_)
+- Instagram: [real.lm2](https://www.instagram.com/real.lm2)

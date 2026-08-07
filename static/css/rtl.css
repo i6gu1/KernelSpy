@@ -113,6 +113,38 @@
     text-align: right;
 }
 
+[dir="rtl"] .hero-chip-ai {
+    right: auto;
+    left: -10px;
+}
+
+[dir="rtl"] .hero-chip-zero {
+    left: auto;
+    right: -10px;
+}
+
+[dir="rtl"] .hud-chip {
+    right: auto;
+    left: -10px;
+}
+
+/* Mirror the hero background glow for RTL layouts */
+[dir="rtl"] .hero-bg-img {
+    mask-image: radial-gradient(ellipse 80% 70% at 30% 40%, black 30%, transparent 75%);
+    -webkit-mask-image: radial-gradient(ellipse 80% 70% at 30% 40%, black 30%, transparent 75%);
+}
+
+@media (min-width: 1025px) {
+    [dir="rtl"] .page-hero-inner .section-title {
+        text-align: right;
+    }
+}
+
+[dir="rtl"] .cta-star-bg {
+    right: auto;
+    left: -80px;
+}
+
 [dir="rtl"] .section-title {
     text-align: right;
 }

@@ -6,17 +6,19 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 )
 
 var (
-	analyses    = make(map[int]*models.AnalysisResult)
-	analysesMu  sync.RWMutex
-	analysisID  = 0
+	analyses   = make(map[int]*models.AnalysisResult)
+	analysesMu sync.RWMutex
+	analysisID atomic.Int32
 )
 
 type HomeHandler struct{}
@@ -61,13 +63,19 @@ func (u *UploadHandler) Upload(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"error": "Failed to extract archive"})
 	}
 
-	analysisID++
-	projectID := analysisID
-
-	lang, _ := c.Locals("lang").(string)
-	if lang == "" {
-		lang = "en"
+	// The upload is valid and the scan is about to start: atomically check
+	// and record the user's single daily scan quota. Failed uploads never
+	// reach this point, so they don't consume the quota, and two concurrent
+	// uploads from the same IP cannot both pass.
+	if ok, retryAfter := rateLimiter.TryRecord(c.IP()); !ok {
+		c.Set("Retry-After", strconv.Itoa(retryAfter))
+		return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
+			"error":               "Rate limit exceeded: you can scan only one project per day. Please try again tomorrow.",
+			"retry_after_seconds": retryAfter,
+		})
 	}
+
+	projectID := int(analysisID.Add(1))
 
 	go runAnalysis(projectID, extractDir)
 
@@ -89,6 +97,7 @@ func runAnalysis(projectID int, projectPath string) {
 		analyses[projectID] = &models.AnalysisResult{
 			FilesScanned:    0,
 			DurationSeconds: int(duration.Seconds()),
+			Error:           err.Error(),
 		}
 		analysesMu.Unlock()
 		return
@@ -122,7 +131,7 @@ func (d *DashboardHandler) ResultsPage(c *fiber.Ctx) error {
 
 	if !exists {
 		return RenderTemplate(c, "results", map[string]interface{}{
-			"HasResult": false,
+			"HasResult":  false,
 			"AnalysisID": idStr,
 		})
 	}

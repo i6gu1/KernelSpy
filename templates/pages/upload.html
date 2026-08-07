@@ -14,11 +14,7 @@
                  :class="{ 'dragging': isDragging }">
                 
                 <div class="upload-icon">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                        <polyline points="17 8 12 3 7 8"></polyline>
-                        <line x1="12" y1="3" x2="12" y2="15"></line>
-                    </svg>
+                    <img src="/static/ui/pic/upload-icon.svg" alt="Upload" class="upload-icon-img" />
                 </div>
                 
                 <p class="upload-text" data-i18n="upload.dragDrop">Drag and drop your ZIP archive here</p>
@@ -114,17 +110,14 @@ function uploadHandler() {
                 
                 const analysisId = data.analysis_id;
                 
+                // Navigate to the polling page which waits for the AI analysis
+                // to finish, then redirects to the results page. This replaces
+                // the old behavior of jumping straight to /results and showing
+                // "No analysis available" while analysis was still running.
                 this.progress = 90;
                 this.statusMessage = i18n.t('analysis.collecting');
                 
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                
-                this.progress = 100;
-                this.statusMessage = i18n.t('analysis.completed');
-                
-                setTimeout(() => {
-                    window.location.href = '/results/' + analysisId;
-                }, 500);
+                window.location.href = '/analysis/' + analysisId;
                 
             } catch (err) {
                 this.error = i18n.t('errors.uploadFailed');

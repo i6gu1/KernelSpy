@@ -2,24 +2,26 @@ package services
 
 import (
 	"black-hat/models"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 type Analyzer struct {
-	detector   *Detector
-	extractor  *Extractor
-	semgrep    *SemgrepRunner
-	trivy      *TrivyRunner
-	gitleaks   *GitleaksRunner
-	eslint     *ESLintRunner
-	golangci   *GolangCIRunner
-	bandit     *BanditRunner
-	clippy     *ClippyRunner
-	pmd        *PMDRunner
-	phpstan    *PHPStanRunner
+	detector  *Detector
+	extractor *Extractor
+	semgrep   *SemgrepRunner
+	trivy     *TrivyRunner
+	gitleaks  *GitleaksRunner
+	eslint    *ESLintRunner
+	golangci  *GolangCIRunner
+	bandit    *BanditRunner
+	clippy    *ClippyRunner
+	pmd       *PMDRunner
+	phpstan   *PHPStanRunner
 }
 
 func NewAnalyzer() *Analyzer {
@@ -38,6 +40,10 @@ func NewAnalyzer() *Analyzer {
 	}
 }
 
+// AnalyzeProject returns a full analysis result. When an AI API key is
+// configured, the AI model reads the project files and produces the findings
+// (this is the primary path used in production on Vercel). Otherwise the
+// classic static-analysis tool runners are used as a fallback for local dev.
 func (a *Analyzer) AnalyzeProject(projectPath string) (*models.AnalysisResult, error) {
 	languages := a.detector.DetectLanguages(projectPath)
 	frameworks := a.detector.DetectFrameworks(projectPath)
@@ -56,6 +62,31 @@ func (a *Analyzer) AnalyzeProject(projectPath string) (*models.AnalysisResult, e
 		LargestFiles: largestFiles,
 	}
 
+	// ----- Primary path: AI analysis -----
+	ai := NewAIAnalyzer()
+	if ai.Enabled() {
+		start := time.Now()
+		aiResult, err := ai.Analyze(projectPath, projectInfo)
+		duration := int(time.Since(start).Seconds())
+		if err != nil {
+			return nil, fmt.Errorf("AI analysis failed: %v", err)
+		}
+		return &models.AnalysisResult{
+			SecurityFindings:   aiResult.SecurityFindings,
+			QualityFindings:    aiResult.QualityFindings,
+			QualityMetrics:     models.QualityMetrics{},
+			DependencyVulns:    aiResult.DependencyVulns,
+			ProjectInfo:        projectInfo,
+			FilesScanned:       fileCount,
+			DurationSeconds:    duration,
+			LanguagesDetected:  languages,
+			FrameworksDetected: frameworks,
+			Summary:            aiResult.Summary,
+			Suggestions:        aiResult.Suggestions,
+		}, nil
+	}
+
+	// ----- Fallback path: classic static-analysis tools -----
 	var mu sync.Mutex
 	securityFindings := []models.SecurityFinding{}
 	qualityFindings := []models.QualityFinding{}
@@ -63,29 +94,28 @@ func (a *Analyzer) AnalyzeProject(projectPath string) (*models.AnalysisResult, e
 	qualityMetrics := models.QualityMetrics{}
 
 	var wg sync.WaitGroup
-	var semWg sync.WaitGroup
 
-	semWg.Add(1)
+	wg.Add(1)
 	go func() {
-		defer semWg.Done()
+		defer wg.Done()
 		results := a.semgrep.Run(projectPath)
 		mu.Lock()
 		securityFindings = append(securityFindings, results...)
 		mu.Unlock()
 	}()
 
-	semWg.Add(1)
+	wg.Add(1)
 	go func() {
-		defer semWg.Done()
+		defer wg.Done()
 		results := a.trivy.Run(projectPath)
 		mu.Lock()
 		depVulns = append(depVulns, results...)
 		mu.Unlock()
 	}()
 
-	semWg.Add(1)
+	wg.Add(1)
 	go func() {
-		defer semWg.Done()
+		defer wg.Done()
 		results := a.gitleaks.Run(projectPath)
 		mu.Lock()
 		securityFindings = append(securityFindings, results...)
@@ -200,7 +230,6 @@ func (a *Analyzer) AnalyzeProject(projectPath string) (*models.AnalysisResult, e
 	}
 
 	wg.Wait()
-	semWg.Wait()
 
 	result := &models.AnalysisResult{
 		SecurityFindings:   securityFindings,

@@ -93,6 +93,8 @@ function analysisPoller(analysisId) {
             ];
             
             let currentStep = 0;
+            const startedAt = Date.now();
+            const maxWaitMs = 300000; // give up after 5 minutes
             
             const interval = setInterval(async () => {
                 if (currentStep < steps.length) {
@@ -102,9 +104,23 @@ function analysisPoller(analysisId) {
                     currentStep++;
                 }
                 
+                // Safety: stop polling after the timeout so the page never
+                // spins forever if the backend hangs.
+                if (Date.now() - startedAt > maxWaitMs) {
+                    clearInterval(interval);
+                    this.statusMessage = i18n.t('errors.analysisFailed');
+                    return;
+                }
+                
                 try {
                     const response = await fetch(`/api/analysis/status/${analysisId}`);
                     const data = await response.json();
+                    
+                    if (data.error) {
+                        clearInterval(interval);
+                        this.statusMessage = data.error;
+                        return;
+                    }
                     
                     if (data.status === 'completed') {
                         clearInterval(interval);
