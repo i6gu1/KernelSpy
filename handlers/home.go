@@ -98,7 +98,8 @@ func getTemplateFiles(tplFS fs.FS, dir string) []string {
 
 // NewHandler builds the full HTTP handler (pages + API + static assets) and
 // wraps it with the middleware chain. This is the single entry point used by
-// both the local server (main.go) and the Vercel Go function (api/handler.go).
+// the local server and the Vercel Go server preset (cmd/api/main.go binds it
+// to $PORT).
 func NewHandler() http.Handler {
 	mux := http.NewServeMux()
 

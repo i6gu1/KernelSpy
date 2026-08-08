@@ -1,14 +1,3 @@
 {
-  "functions": {
-    "api/handler.go": {
-      "maxDuration": 60,
-      "memory": 1024
-    }
-  },
-  "rewrites": [
-    {
-      "source": "/(.*)",
-      "destination": "/api/handler"
-    }
-  ]
+  "$schema": "https://openapi.vercel.sh/vercel.json"
 }

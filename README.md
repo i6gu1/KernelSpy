@@ -47,7 +47,7 @@ Tools are discovered at runtime from `SAST_TOOLS_DIR`, `/opt/bin`, `/usr/local/b
 
 ```bash
 go mod tidy
-go run ./cmd/blackhat
+go run ./cmd/api
 ```
 
 Visit `http://localhost:3000`
@@ -96,8 +96,7 @@ MAX_CONCURRENT_ANALYSES=5
 
 ```
 black-hat/
-├── api/handler.go            # Vercel Go serverless function entry (package handler)
-├── cmd/blackhat/             # Local server entry point
+├── cmd/api/                  # Go server entry point (Vercel Go Framework Preset + local)
 ├── assets.go                 # go:embed of templates/static/i18n (required on Vercel)
 ├── config/                   # Configuration loading
 ├── i18n/                     # Translation files (en, ar, ru, fr, es)
@@ -130,18 +129,24 @@ black-hat/
 
 ### Vercel (serverless Go function)
 
-The app is structured for Vercel's Go runtime: `api/handler.go` declares `package handler` with an exported `Handler(w, r)`. `vercel.json` rewrites every route to the function, and `templates`, `static` and `i18n` are embedded into the binary so they survive the read-only serverless filesystem.
+The app uses Vercel's **Go Framework Preset**: Vercel detects the root
+`go.mod` plus the `cmd/api/main.go` entrypoint (the documented `go` preset
+layout), and runs the net/http server bound to `$PORT`. `templates`, `static`
+and `i18n` are embedded into the binary with `go:embed` so no extra files are
+needed at runtime. Uploads are written to `os.TempDir()` (`/tmp`), the only
+writable location in the runtime sandbox.
 
 ```bash
 vercel link
 vercel --prod
 ```
 
-> **Note:** Vercel serverless functions only allow writes under `/tmp` and the
-> platform caps request bodies (~4.5 MB). For full 50 MB uploads and the
-> complete SAST toolchain, deploy the **Docker image** instead (Render,
-> Fly.io, a VPS, or any container host). On serverless, tools installed by
-> `build.sh` are not present in the runtime sandbox and are skipped gracefully.
+> **Note:** On Vercel's Go server runtime the app runs as a long-lived
+> process, so the background analysis goroutine completes normally and `/tmp`
+> is writable. SAST tools installed by `build.sh` are not present in Vercel's
+> runtime sandbox, so those scanners are skipped gracefully there — deploy the
+> **Docker image** (Render, Fly.io, a VPS, or any container host) for the
+> complete toolchain and the full 50 MB upload experience.
 
 ### Docker (full SAST toolchain)
 

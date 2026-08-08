@@ -10,7 +10,7 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux go build -o black-hat ./cmd/blackhat
+RUN CGO_ENABLED=0 GOOS=linux go build -o black-hat ./cmd/api
 
 # ---- Runtime stage ----
 FROM alpine:latest
