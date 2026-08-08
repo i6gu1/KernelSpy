@@ -2,23 +2,28 @@ package services
 
 import (
 	"black-hat/models"
-	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
-	"time"
 )
 
+// Analyzer orchestrates the concurrent Static Application Security Testing
+// (SAST) pipeline. It detects the project languages, then runs every
+// applicable industry-standard CLI tool in parallel goroutines and aggregates
+// their JSON outputs into the single unified report schema the frontend
+// expects. No AI is used anywhere — findings come strictly from the tools.
 type Analyzer struct {
 	detector  *Detector
-	extractor *Extractor
 	semgrep   *SemgrepRunner
+	gosec     *GosecRunner
+	njsscan   *NjsScanRunner
+	bandit    *BanditRunner
+	eslint    *ESLintRunner
 	trivy     *TrivyRunner
 	gitleaks  *GitleaksRunner
-	eslint    *ESLintRunner
 	golangci  *GolangCIRunner
-	bandit    *BanditRunner
 	clippy    *ClippyRunner
 	pmd       *PMDRunner
 	phpstan   *PHPStanRunner
@@ -27,23 +32,23 @@ type Analyzer struct {
 func NewAnalyzer() *Analyzer {
 	return &Analyzer{
 		detector:  NewDetector(),
-		extractor: NewExtractor(),
 		semgrep:   NewSemgrepRunner(),
+		gosec:     NewGosecRunner(),
+		njsscan:   NewNjsScanRunner(),
+		bandit:    NewBanditRunner(),
+		eslint:    NewESLintRunner(),
 		trivy:     NewTrivyRunner(),
 		gitleaks:  NewGitleaksRunner(),
-		eslint:    NewESLintRunner(),
 		golangci:  NewGolangCIRunner(),
-		bandit:    NewBanditRunner(),
 		clippy:    NewClippyRunner(),
 		pmd:       NewPMDRunner(),
 		phpstan:   NewPHPStanRunner(),
 	}
 }
 
-// AnalyzeProject returns a full analysis result. When an AI API key is
-// configured, the AI model reads the project files and produces the findings
-// (this is the primary path used in production on Vercel). Otherwise the
-// classic static-analysis tool runners are used as a fallback for local dev.
+// AnalyzeProject scans the extracted project directory and returns a full
+// analysis result. Every scanner runs concurrently; results are aggregated
+// with a mutex and the pipeline always completes within toolTimeout per tool.
 func (a *Analyzer) AnalyzeProject(projectPath string) (*models.AnalysisResult, error) {
 	languages := a.detector.DetectLanguages(projectPath)
 	frameworks := a.detector.DetectFrameworks(projectPath)
@@ -62,169 +67,112 @@ func (a *Analyzer) AnalyzeProject(projectPath string) (*models.AnalysisResult, e
 		LargestFiles: largestFiles,
 	}
 
-	// ----- Primary path: AI analysis -----
-	ai := NewAIAnalyzer()
-	if ai.Enabled() {
-		start := time.Now()
-		aiResult, err := ai.Analyze(projectPath, projectInfo)
-		duration := int(time.Since(start).Seconds())
-		if err != nil {
-			return nil, fmt.Errorf("AI analysis failed: %v", err)
-		}
-		return &models.AnalysisResult{
-			SecurityFindings:   aiResult.SecurityFindings,
-			QualityFindings:    aiResult.QualityFindings,
-			QualityMetrics:     models.QualityMetrics{},
-			DependencyVulns:    aiResult.DependencyVulns,
-			ProjectInfo:        projectInfo,
-			FilesScanned:       fileCount,
-			DurationSeconds:    duration,
-			LanguagesDetected:  languages,
-			FrameworksDetected: frameworks,
-			Summary:            aiResult.Summary,
-			Suggestions:        aiResult.Suggestions,
-		}, nil
-	}
-
-	// ----- Fallback path: classic static-analysis tools -----
 	var mu sync.Mutex
 	securityFindings := []models.SecurityFinding{}
 	qualityFindings := []models.QualityFinding{}
 	depVulns := []models.DependencyVulnerability{}
 	qualityMetrics := models.QualityMetrics{}
 
+	// addSecurity appends findings under the mutex.
+	addSecurity := func(findings []models.SecurityFinding) {
+		mu.Lock()
+		securityFindings = append(securityFindings, findings...)
+		mu.Unlock()
+	}
+	addQuality := func(findings []models.QualityFinding, metrics models.QualityMetrics) {
+		mu.Lock()
+		qualityFindings = append(qualityFindings, findings...)
+		qualityMetrics.DuplicatedCode += metrics.DuplicatedCode
+		qualityMetrics.UnusedImports += metrics.UnusedImports
+		qualityMetrics.UnusedVars += metrics.UnusedVars
+		qualityMetrics.DeadCode += metrics.DeadCode
+		qualityMetrics.LongFunctions += metrics.LongFunctions
+		qualityMetrics.LargeFiles += metrics.LargeFiles
+		qualityMetrics.ComplexFunctions += metrics.ComplexFunctions
+		qualityMetrics.StyleIssues += metrics.StyleIssues
+		mu.Unlock()
+	}
+	addDeps := func(vulns []models.DependencyVulnerability) {
+		mu.Lock()
+		depVulns = append(depVulns, vulns...)
+		mu.Unlock()
+	}
+
 	var wg sync.WaitGroup
 
+	// ---- Language-agnostic scanners (run for every project) ----
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		results := a.semgrep.Run(projectPath)
-		mu.Lock()
-		securityFindings = append(securityFindings, results...)
-		mu.Unlock()
+		addSecurity(a.semgrep.Run(projectPath))
 	}()
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		results := a.trivy.Run(projectPath)
-		mu.Lock()
-		depVulns = append(depVulns, results...)
-		mu.Unlock()
+		addSecurity(a.gitleaks.Run(projectPath))
 	}()
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		results := a.gitleaks.Run(projectPath)
-		mu.Lock()
-		securityFindings = append(securityFindings, results...)
-		mu.Unlock()
+		addDeps(a.trivy.Run(projectPath))
 	}()
 
+	// ---- Language-specific scanners ----
 	for _, lang := range languages {
 		switch lang {
-		case "javascript", "typescript":
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				findings, metrics := a.eslint.Run(projectPath)
-				mu.Lock()
-				qualityFindings = append(qualityFindings, findings...)
-				qualityMetrics.DuplicatedCode += metrics.DuplicatedCode
-				qualityMetrics.UnusedImports += metrics.UnusedImports
-				qualityMetrics.UnusedVars += metrics.UnusedVars
-				qualityMetrics.DeadCode += metrics.DeadCode
-				qualityMetrics.LongFunctions += metrics.LongFunctions
-				qualityMetrics.LargeFiles += metrics.LargeFiles
-				qualityMetrics.ComplexFunctions += metrics.ComplexFunctions
-				qualityMetrics.StyleIssues += metrics.StyleIssues
-				mu.Unlock()
-			}()
 		case "go":
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
+				addSecurity(a.gosec.Run(projectPath))
+			}()
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
 				findings, metrics := a.golangci.Run(projectPath)
-				mu.Lock()
-				qualityFindings = append(qualityFindings, findings...)
-				qualityMetrics.DuplicatedCode += metrics.DuplicatedCode
-				qualityMetrics.UnusedImports += metrics.UnusedImports
-				qualityMetrics.UnusedVars += metrics.UnusedVars
-				qualityMetrics.DeadCode += metrics.DeadCode
-				qualityMetrics.LongFunctions += metrics.LongFunctions
-				qualityMetrics.LargeFiles += metrics.LargeFiles
-				qualityMetrics.ComplexFunctions += metrics.ComplexFunctions
-				qualityMetrics.StyleIssues += metrics.StyleIssues
-				mu.Unlock()
+				addQuality(findings, metrics)
 			}()
 		case "python":
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				findings, metrics := a.bandit.Run(projectPath)
-				mu.Lock()
-				qualityFindings = append(qualityFindings, findings...)
-				qualityMetrics.DuplicatedCode += metrics.DuplicatedCode
-				qualityMetrics.UnusedImports += metrics.UnusedImports
-				qualityMetrics.UnusedVars += metrics.UnusedVars
-				qualityMetrics.DeadCode += metrics.DeadCode
-				qualityMetrics.LongFunctions += metrics.LongFunctions
-				qualityMetrics.LargeFiles += metrics.LargeFiles
-				qualityMetrics.ComplexFunctions += metrics.ComplexFunctions
-				qualityMetrics.StyleIssues += metrics.StyleIssues
-				mu.Unlock()
+				addSecurity(a.bandit.Run(projectPath))
+			}()
+		case "javascript", "typescript":
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				addSecurity(a.njsscan.Run(projectPath))
+			}()
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				sec, qual, metrics := a.eslint.Run(projectPath)
+				addSecurity(sec)
+				addQuality(qual, metrics)
 			}()
 		case "rust":
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
 				findings, metrics := a.clippy.Run(projectPath)
-				mu.Lock()
-				qualityFindings = append(qualityFindings, findings...)
-				qualityMetrics.DuplicatedCode += metrics.DuplicatedCode
-				qualityMetrics.UnusedImports += metrics.UnusedImports
-				qualityMetrics.UnusedVars += metrics.UnusedVars
-				qualityMetrics.DeadCode += metrics.DeadCode
-				qualityMetrics.LongFunctions += metrics.LongFunctions
-				qualityMetrics.LargeFiles += metrics.LargeFiles
-				qualityMetrics.ComplexFunctions += metrics.ComplexFunctions
-				qualityMetrics.StyleIssues += metrics.StyleIssues
-				mu.Unlock()
+				addQuality(findings, metrics)
 			}()
 		case "java":
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
 				findings, metrics := a.pmd.Run(projectPath)
-				mu.Lock()
-				qualityFindings = append(qualityFindings, findings...)
-				qualityMetrics.DuplicatedCode += metrics.DuplicatedCode
-				qualityMetrics.UnusedImports += metrics.UnusedImports
-				qualityMetrics.UnusedVars += metrics.UnusedVars
-				qualityMetrics.DeadCode += metrics.DeadCode
-				qualityMetrics.LongFunctions += metrics.LongFunctions
-				qualityMetrics.LargeFiles += metrics.LargeFiles
-				qualityMetrics.ComplexFunctions += metrics.ComplexFunctions
-				qualityMetrics.StyleIssues += metrics.StyleIssues
-				mu.Unlock()
+				addQuality(findings, metrics)
 			}()
 		case "php":
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
 				findings, metrics := a.phpstan.Run(projectPath)
-				mu.Lock()
-				qualityFindings = append(qualityFindings, findings...)
-				qualityMetrics.DuplicatedCode += metrics.DuplicatedCode
-				qualityMetrics.UnusedImports += metrics.UnusedImports
-				qualityMetrics.UnusedVars += metrics.UnusedVars
-				qualityMetrics.DeadCode += metrics.DeadCode
-				qualityMetrics.LongFunctions += metrics.LongFunctions
-				qualityMetrics.LargeFiles += metrics.LargeFiles
-				qualityMetrics.ComplexFunctions += metrics.ComplexFunctions
-				qualityMetrics.StyleIssues += metrics.StyleIssues
-				mu.Unlock()
+				addQuality(findings, metrics)
 			}()
 		}
 	}
@@ -241,9 +189,82 @@ func (a *Analyzer) AnalyzeProject(projectPath string) (*models.AnalysisResult, e
 		DurationSeconds:    0,
 		LanguagesDetected:  languages,
 		FrameworksDetected: frameworks,
+		Summary:            buildSummary(securityFindings, depVulns, languages, fileCount),
+		Suggestions:        buildSuggestions(securityFindings, depVulns),
 	}
 
 	return result, nil
+}
+
+// buildSummary generates a concise, non-AI summary of the tool findings.
+func buildSummary(security []models.SecurityFinding, deps []models.DependencyVulnerability, languages []string, files int) string {
+	if len(security) == 0 && len(deps) == 0 {
+		return "No vulnerabilities were detected by the static analysis tools."
+	}
+
+	sevCounts := map[string]int{}
+	tools := map[string]bool{}
+	for _, f := range security {
+		sevCounts[f.Severity]++
+		tools[f.Tool] = true
+	}
+	for _, d := range deps {
+		sevCounts[d.Severity]++
+		tools[d.Tool] = true
+	}
+
+	var parts []string
+	order := []string{"critical", "high", "medium", "low"}
+	for _, sev := range order {
+		if n := sevCounts[sev]; n > 0 {
+			parts = append(parts, strings.ToUpper(sev)+": "+strconv.Itoa(n))
+		}
+	}
+
+	var toolNames []string
+	for t := range tools {
+		toolNames = append(toolNames, t)
+	}
+
+	return "Scanned " + strconv.Itoa(files) + " file(s) (" + strings.Join(languages, ", ") + "). " +
+		"Found " + strconv.Itoa(len(security)) + " security issue(s) and " + strconv.Itoa(len(deps)) +
+		" dependency risk(s) — " + strings.Join(parts, ", ") +
+		". Detected by: " + strings.Join(toolNames, ", ") + "."
+}
+
+// buildSuggestions derives actionable, tool-backed remediation suggestions.
+func buildSuggestions(security []models.SecurityFinding, deps []models.DependencyVulnerability) []string {
+	seen := map[string]bool{}
+	var suggestions []string
+
+	for _, f := range security {
+		if len(suggestions) >= 8 {
+			break
+		}
+		rec := strings.TrimSpace(f.Recommendation)
+		if rec == "" {
+			rec = "Review the reported issue in " + f.FilePath
+		}
+		if !seen[rec] {
+			seen[rec] = true
+			suggestions = append(suggestions, rec)
+		}
+	}
+
+	for _, d := range deps {
+		if len(suggestions) >= 10 {
+			break
+		}
+		if d.PatchedVersion != "" {
+			rec := "Upgrade " + d.PackageName + " from " + d.InstalledVersion + " to " + d.PatchedVersion
+			if !seen[rec] {
+				seen[rec] = true
+				suggestions = append(suggestions, rec)
+			}
+		}
+	}
+
+	return suggestions
 }
 
 func countFilesAndLines(root string) (int, int) {

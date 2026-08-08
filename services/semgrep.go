@@ -1,82 +1,68 @@
 package services
 
 import (
+	"encoding/json"
+	"log"
+
 	"black-hat/models"
-	"os/exec"
-	"strings"
 )
 
+// SemgrepRunner scans projects with Semgrep (--config=auto) and unmarshals its
+// JSON output. Covers XSS, SQL/command injection, SSRF, path traversal and
+// hundreds of other rules across all major languages.
 type SemgrepRunner struct{}
 
 func NewSemgrepRunner() *SemgrepRunner {
 	return &SemgrepRunner{}
 }
 
+// semgrepOutput mirrors the relevant fields of `semgrep --json` output.
+type semgrepOutput struct {
+	Results []struct {
+		CheckID string `json:"check_id"`
+		Path    string `json:"path"`
+		Start   struct {
+			Line int `json:"line"`
+		} `json:"start"`
+		Extra struct {
+			Message  string `json:"message"`
+			Severity string `json:"severity"`
+		} `json:"extra"`
+	} `json:"results"`
+	Errors []interface{} `json:"errors"`
+}
+
 func (s *SemgrepRunner) Run(projectPath string) []models.SecurityFinding {
-	var findings []models.SecurityFinding
-
-	cmd := exec.Command("semgrep", "--config=auto", "--json", "--quiet", projectPath)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return findings
+	out, ok := runTool("semgrep", "--config=auto", "--json", "--quiet", projectPath)
+	if !ok || len(out) == 0 {
+		return nil
 	}
 
-	outputStr := string(output)
-	if !strings.Contains(outputStr, "results") {
-		return findings
+	var parsed semgrepOutput
+	if err := json.Unmarshal(out, &parsed); err != nil {
+		log.Printf("[semgrep] failed to parse output: %v", err)
+		return nil
 	}
 
-	parts := strings.Split(outputStr, "\"rule\":")
-	for _, part := range parts[1:] {
-		finding := models.SecurityFinding{
-			Tool:        "semgrep",
-			Severity:    "medium",
-			Description: extractJSONValue(part, "message"),
-			Rule:        extractJSONValue(part, "rule"),
+	findings := make([]models.SecurityFinding, 0, len(parsed.Results))
+	for _, r := range parsed.Results {
+		if r.CheckID == "" {
+			continue
 		}
-		filePath := extractJSONValue(part, "file")
-		if filePath != "" {
-			finding.FilePath = filePath
+		description := r.Extra.Message
+		if description == "" {
+			description = "Security issue detected by Semgrep"
 		}
-		sev := strings.ToLower(extractJSONValue(part, "severity"))
-		switch sev {
-		case "error", "critical":
-			finding.Severity = "critical"
-		case "warning", "high":
-			finding.Severity = "high"
-		case "medium", "info":
-			finding.Severity = "medium"
-		default:
-			finding.Severity = "low"
-		}
-		finding.Description = extractJSONValue(part, "message")
-		if finding.Description == "" {
-			finding.Description = "Security issue detected by Semgrep"
-		}
-		finding.Recommendation = "Review the code and apply the recommended fix"
-		findings = append(findings, finding)
+		findings = append(findings, models.SecurityFinding{
+			Rule:           r.CheckID,
+			FilePath:       r.Path,
+			LineNumber:     r.Start.Line,
+			Severity:       normalizeSeverity(r.Extra.Severity),
+			Description:    description,
+			Recommendation: "Review the code and apply the fix suggested by the Semgrep rule.",
+			Tool:           "semgrep",
+		})
 	}
 
 	return findings
-}
-
-func extractJSONValue(json, key string) string {
-	searchKey := "\"" + key + "\":"
-	idx := strings.Index(json, searchKey)
-	if idx == -1 {
-		return ""
-	}
-	rest := json[idx+len(searchKey):]
-	rest = strings.TrimSpace(rest)
-	if len(rest) < 2 {
-		return ""
-	}
-	if rest[0] == '"' {
-		endIdx := strings.Index(rest[1:], "\"")
-		if endIdx == -1 {
-			return ""
-		}
-		return rest[1 : endIdx+1]
-	}
-	return ""
 }

@@ -1,16 +1,14 @@
 {
-  "services": {
-    "blackhat": {
-      "root": ".",
-      "entrypoint": "Dockerfile.vercel"
+  "functions": {
+    "api/handler.go": {
+      "maxDuration": 60,
+      "memory": 1024
     }
   },
   "rewrites": [
     {
       "source": "/(.*)",
-      "destination": {
-        "service": "blackhat"
-      }
+      "destination": "/api/handler"
     }
   ]
 }

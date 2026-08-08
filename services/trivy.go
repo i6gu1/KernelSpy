@@ -1,61 +1,62 @@
 package services
 
 import (
+	"encoding/json"
+	"log"
+
 	"black-hat/models"
-	"os/exec"
-	"strings"
 )
 
+// TrivyRunner scans project filesystems for known vulnerabilities in
+// dependencies (OS packages, languages such as Go/npm/pip/composer, IaC, etc.)
+// using `trivy fs --format json`.
 type TrivyRunner struct{}
 
 func NewTrivyRunner() *TrivyRunner {
 	return &TrivyRunner{}
 }
 
+// trivyOutput mirrors the relevant fields of `trivy fs --format json`.
+type trivyOutput struct {
+	Results []struct {
+		Target           string `json:"Target"`
+		Vulnerabilities  []struct {
+			VulnerabilityID   string `json:"VulnerabilityID"`
+			PkgName           string `json:"PkgName"`
+			InstalledVersion  string `json:"InstalledVersion"`
+			FixedVersion      string `json:"FixedVersion"`
+			Severity          string `json:"Severity"`
+			PrimaryURL        string `json:"PrimaryURL"`
+		} `json:"Vulnerabilities"`
+	} `json:"Results"`
+}
+
 func (t *TrivyRunner) Run(projectPath string) []models.DependencyVulnerability {
+	out, ok := runTool("trivy", "fs", "--format", "json", "--quiet", "--skip-dirs", "node_modules", "--skip-dirs", ".git", projectPath)
+	if !ok || len(out) == 0 {
+		return nil
+	}
+
+	var parsed trivyOutput
+	if err := json.Unmarshal(out, &parsed); err != nil {
+		log.Printf("[trivy] failed to parse output: %v", err)
+		return nil
+	}
+
 	var vulns []models.DependencyVulnerability
-
-	cmd := exec.Command("trivy", "fs", "--format", "json", "--quiet", projectPath)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return vulns
-	}
-
-	outputStr := string(output)
-	if !strings.Contains(outputStr, "Results") {
-		return vulns
-	}
-
-	parts := strings.Split(outputStr, "\"Target\":")
-	for _, part := range parts[1:] {
-		vulnParts := strings.Split(part, "\"Vulnerabilities\":")
-		if len(vulnParts) < 2 {
-			continue
-		}
-		vulnSection := vulnParts[1]
-		entries := strings.Split(vulnSection, "\"VulnerabilityID\":")
-		for _, entry := range entries[1:] {
-			vuln := models.DependencyVulnerability{
+	for _, r := range parsed.Results {
+		for _, v := range r.Vulnerabilities {
+			if v.VulnerabilityID == "" || v.PkgName == "" {
+				continue
+			}
+			vulns = append(vulns, models.DependencyVulnerability{
+				PackageName:      v.PkgName,
+				InstalledVersion: v.InstalledVersion,
+				PatchedVersion:   v.FixedVersion,
+				Severity:         normalizeSeverity(v.Severity),
+				ReferenceURL:     v.PrimaryURL,
 				Tool:             "trivy",
-				InstalledVersion: extractJSONValue(entry, "InstalledVersion"),
-				PatchedVersion:   extractJSONValue(entry, "FixedVersion"),
-				PackageName:      extractJSONValue(entry, "PkgName"),
-			}
-			vuln.ReferenceURL = extractJSONValue(entry, "PrimaryURL")
-			sev := strings.ToUpper(extractJSONValue(entry, "Severity"))
-			switch sev {
-			case "CRITICAL":
-				vuln.Severity = "critical"
-			case "HIGH":
-				vuln.Severity = "high"
-			case "MEDIUM":
-				vuln.Severity = "medium"
-			case "LOW":
-				vuln.Severity = "low"
-			default:
-				vuln.Severity = "info"
-			}
-			vulns = append(vulns, vuln)
+			})
 		}
 	}
 

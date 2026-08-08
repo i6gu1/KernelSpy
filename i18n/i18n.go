@@ -2,9 +2,11 @@ package i18n
 
 import (
 	"encoding/json"
-	"os"
+	"io/fs"
 	"strings"
 	"sync"
+
+	"black-hat"
 )
 
 type Translator struct {
@@ -29,8 +31,10 @@ func GetInstance() *Translator {
 
 func (t *Translator) loadAll() {
 	langs := []string{"en", "ar", "ru", "fr", "es"}
+	// Translations are embedded in the binary so they work on Vercel's
+	// read-only serverless filesystem.
 	for _, lang := range langs {
-		data, err := os.ReadFile("i18n/" + lang + ".json")
+		data, err := fs.ReadFile(assets.I18n(), lang+".json")
 		if err != nil {
 			continue
 		}

@@ -1,33 +1,33 @@
-FROM golang:1.21-alpine AS builder
+# Vercel Docker image: same as Dockerfile but documented for the container
+# deployment path. The primary Vercel deployment uses the serverless Go
+# function in api/handler.go (see vercel.json); this image is the alternative
+# when a long-running container is preferred and full SAST tools are needed.
+
+FROM golang:1.22-alpine AS builder
 
 WORKDIR /app
 
-RUN apk add --no-cache git
+RUN apk add --no-cache git ca-certificates
 
 COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux go build -o black-hat .
+RUN CGO_ENABLED=0 GOOS=linux go build -o black-hat ./cmd/blackhat
 
 FROM alpine:latest
 
-RUN apk --no-cache add ca-certificates
+RUN apk --no-cache add ca-certificates curl tar git bash \
+    python3 py3-pip nodejs npm
 
 WORKDIR /root/
 
+COPY build.sh /build.sh
+RUN bash /build.sh || true
+
 COPY --from=builder /app/black-hat .
-COPY --from=builder /app/static ./static
-COPY --from=builder /app/templates ./templates
-COPY --from=builder /app/i18n ./i18n
 
-RUN mkdir -p uploads
-
-# Vercel Docker functions route traffic to port 80 by default (overridable
-# via the PORT env var in Vercel project settings), so bind the app to 80
-# inside this image. The app reads $PORT at runtime, so an explicit Vercel
-# PORT value always wins.
 ENV PORT=80
 
 EXPOSE 80

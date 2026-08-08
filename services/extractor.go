@@ -15,10 +15,21 @@ func NewExtractor() *Extractor {
 	return &Extractor{}
 }
 
-// maxExtractedBytes guards against zip-bomb uploads: the compressed archive may
-// be small, but its expanded content is capped to protect the container disk.
-const maxExtractedBytes = 200 * 1024 * 1024 // 200 MB
+const (
+	// maxExtractedBytes guards against zip-bomb uploads: the compressed archive
+	// may be small, but its expanded content is capped to protect the disk.
+	maxExtractedBytes = 200 * 1024 * 1024 // 200 MB total
+	// maxExtractedFileBytes caps a single entry so one huge file can't blow up
+	// the workspace by itself.
+	maxExtractedFileBytes = 50 * 1024 * 1024 // 50 MB per file
+	// maxExtractedEntries caps the number of files (symlink/special-file and
+	// decompression-bomb abuse protection).
+	maxExtractedEntries = 5000
+)
 
+// ExtractZIP safely extracts a ZIP archive into destDir. It rejects path
+// traversal, caps per-file and total expansion sizes (zip bombs), limits the
+// entry count and streams each file with io.Copy.
 func (e *Extractor) ExtractZIP(zipPath, destDir string) error {
 	reader, err := zip.OpenReader(zipPath)
 	if err != nil {
@@ -26,31 +37,50 @@ func (e *Extractor) ExtractZIP(zipPath, destDir string) error {
 	}
 	defer reader.Close()
 
+	destClean := filepath.Clean(destDir)
 	var totalBytes int64
+	entryCount := 0
 
 	for _, file := range reader.File {
-		filePath := filepath.Join(destDir, file.Name)
-
-		if !strings.HasPrefix(filePath, filepath.Clean(destDir)+string(os.PathSeparator)) {
-			continue
+		entryCount++
+		if entryCount > maxExtractedEntries {
+			return fmt.Errorf("archive contains too many files (max %d)", maxExtractedEntries)
 		}
 
-		if file.FileInfo().IsDir() {
-			os.MkdirAll(filePath, os.ModePerm)
-			continue
+		// Reject absolute paths and any path that escapes the destination
+		// directory (zip-slip protection).
+		name := filepath.ToSlash(file.Name)
+		if strings.HasPrefix(name, "/") || strings.Contains(name, "..") {
+			return fmt.Errorf("archive contains an unsafe path: %s", file.Name)
 		}
 
-		if err = os.MkdirAll(filepath.Dir(filePath), os.ModePerm); err != nil {
-			return err
+		filePath := filepath.Join(destDir, filepath.FromSlash(name))
+		if !strings.HasPrefix(filepath.Clean(filePath), destClean+string(os.PathSeparator)) && filepath.Clean(filePath) != destClean {
+			return fmt.Errorf("archive contains a path outside the extract directory: %s", file.Name)
 		}
 
-		// Zip-bomb guard: cap the total expanded size.
-		totalBytes += int64(file.UncompressedSize64)
+		// Cap total expanded size before touching the disk.
+		uncompressed := int64(file.UncompressedSize64)
+		if uncompressed > maxExtractedFileBytes {
+			return fmt.Errorf("file %s expands beyond the %d MB per-file limit", file.Name, maxExtractedFileBytes/(1024*1024))
+		}
+		totalBytes += uncompressed
 		if totalBytes > maxExtractedBytes {
 			return fmt.Errorf("archive expands beyond the %d MB limit", maxExtractedBytes/(1024*1024))
 		}
 
-		outFile, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, file.Mode())
+		if file.FileInfo().IsDir() {
+			if err := os.MkdirAll(filePath, 0o755); err != nil {
+				return err
+			}
+			continue
+		}
+
+		if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
+			return err
+		}
+
+		outFile, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
 		if err != nil {
 			return err
 		}
@@ -61,11 +91,17 @@ func (e *Extractor) ExtractZIP(zipPath, destDir string) error {
 			return err
 		}
 
-		_, err = io.Copy(outFile, rc)
+		// Stream with io.Copy; cap the copy so a lying UncompressedSize64 can't
+		// bypass the limits (CopyN-style guard).
+		written, err := io.Copy(outFile, io.LimitReader(rc, maxExtractedFileBytes+1))
 		rc.Close()
 		outFile.Close()
+
 		if err != nil {
 			return err
+		}
+		if written > maxExtractedFileBytes {
+			return fmt.Errorf("file %s expands beyond the %d MB per-file limit", file.Name, maxExtractedFileBytes/(1024*1024))
 		}
 	}
 

@@ -1,18 +1,19 @@
 package handlers
 
 import (
-	"black-hat/models"
-	"black-hat/services"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
+	"black-hat/middleware"
+	"black-hat/models"
+	"black-hat/services"
 )
 
 var (
@@ -21,76 +22,150 @@ var (
 	analysisID atomic.Int32
 )
 
+const maxUploadSize = 52428800 // 50 MB
+
 type HomeHandler struct{}
 
-func (h *HomeHandler) Home(c *fiber.Ctx) error {
-	return RenderTemplate(c, "home", nil)
+func (h *HomeHandler) Home(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+	RenderTemplate(w, r, "home", nil)
 }
 
 type UploadHandler struct{}
 
-func (u *UploadHandler) UploadPage(c *fiber.Ctx) error {
-	return RenderTemplate(c, "upload", nil)
+func (u *UploadHandler) UploadPage(w http.ResponseWriter, r *http.Request) {
+	RenderTemplate(w, r, "upload", nil)
 }
 
-func (u *UploadHandler) Upload(c *fiber.Ctx) error {
-	file, err := c.FormFile("project")
+// Upload accepts a multipart/form-data request with a "project" ZIP file.
+//
+// Critical for Vercel: all file operations happen under the OS temp directory
+// (os.TempDir() -> /tmp on Linux), because Vercel's Go runtime only allows
+// writes there. The archive is extracted with archive/zip under strict guards:
+// path-traversal rejection, per-file and total expansion caps (zip-bomb
+// protection) and a maximum entry count.
+func (u *UploadHandler) Upload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		middleware.WriteJSON(w, http.StatusMethodNotAllowed, map[string]interface{}{"error": "Method not allowed"})
+		return
+	}
+
+	// Cap the request body before parsing so oversized uploads fail fast.
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize+1<<20)
+
+	if err := r.ParseMultipartForm(maxUploadSize); err != nil {
+		middleware.WriteJSON(w, http.StatusBadRequest, map[string]interface{}{"error": "Upload failed"})
+		return
+	}
+
+	file, header, err := r.FormFile("project")
 	if err != nil {
-		return c.Status(400).JSON(fiber.Map{"error": "No file uploaded"})
+		middleware.WriteJSON(w, http.StatusBadRequest, map[string]interface{}{"error": "No file uploaded"})
+		return
+	}
+	defer file.Close()
+	// Remove the multipart temp files (file parts larger than the memory
+	// threshold are spilled to /tmp by the stdlib). The uploaded file has
+	// already been copied out by the time this handler returns.
+	defer r.MultipartForm.RemoveAll()
+
+	if !strings.HasSuffix(strings.ToLower(header.Filename), ".zip") {
+		middleware.WriteJSON(w, http.StatusBadRequest, map[string]interface{}{"error": "Unsupported archive. Please upload a ZIP file."})
+		return
 	}
 
-	if !strings.HasSuffix(strings.ToLower(file.Filename), ".zip") {
-		return c.Status(400).JSON(fiber.Map{"error": "Unsupported archive. Please upload a ZIP file."})
+	if header.Size > maxUploadSize {
+		middleware.WriteJSON(w, http.StatusBadRequest, map[string]interface{}{"error": "File too large. Maximum size is 50MB."})
+		return
 	}
 
-	if file.Size > 52428800 {
-		return c.Status(400).JSON(fiber.Map{"error": "File too large. Maximum size is 50MB."})
+	// ---- All file I/O happens under /tmp (os.TempDir) ----
+	tmpRoot := os.TempDir()
+	uploadDir := filepath.Join(tmpRoot, "blackhat-uploads")
+	extractDir := filepath.Join(tmpRoot, "blackhat-projects")
+
+	os.MkdirAll(uploadDir, 0o755)
+	os.MkdirAll(extractDir, 0o755)
+
+	savePath := filepath.Join(uploadDir, fmt.Sprintf("%d_%s", time.Now().UnixNano(), sanitizeFilename(header.Filename)))
+
+	out, err := os.Create(savePath)
+	if err != nil {
+		middleware.WriteJSON(w, http.StatusInternalServerError, map[string]interface{}{"error": "Failed to save file"})
+		return
 	}
+	if _, err := io.Copy(out, file); err != nil {
+		out.Close()
+		os.Remove(savePath)
+		middleware.WriteJSON(w, http.StatusInternalServerError, map[string]interface{}{"error": "Failed to save file"})
+		return
+	}
+	out.Close()
 
-	uploadDir := "./uploads"
-	os.MkdirAll(uploadDir, 0755)
-
-	savePath := filepath.Join(uploadDir, fmt.Sprintf("%d_%s", time.Now().UnixNano(), file.Filename))
-	if err := c.SaveFile(file, savePath); err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": "Failed to save file"})
+	projectDir := filepath.Join(extractDir, fmt.Sprintf("project_%d", time.Now().UnixNano()))
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		os.Remove(savePath)
+		middleware.WriteJSON(w, http.StatusInternalServerError, map[string]interface{}{"error": "Failed to prepare workspace"})
+		return
 	}
 
 	extractor := services.NewExtractor()
-	extractDir := filepath.Join(uploadDir, fmt.Sprintf("project_%d", time.Now().UnixNano()))
-	os.MkdirAll(extractDir, 0755)
-
-	if err := extractor.ExtractZIP(savePath, extractDir); err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": "Failed to extract archive"})
+	if err := extractor.ExtractZIP(savePath, projectDir); err != nil {
+		os.Remove(savePath)
+		os.RemoveAll(projectDir)
+		middleware.WriteJSON(w, http.StatusBadRequest, map[string]interface{}{"error": "Failed to extract archive"})
+		return
 	}
 
 	// The upload is valid and the scan is about to start: atomically check
 	// and record the user's single daily scan quota. Failed uploads never
 	// reach this point, so they don't consume the quota, and two concurrent
 	// uploads from the same IP cannot both pass.
-	if ok, retryAfter := rateLimiter.TryRecord(c.IP()); !ok {
-		c.Set("Retry-After", strconv.Itoa(retryAfter))
-		return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
+	if ok, retryAfter := rateLimiter.TryRecord(middleware.ClientIP(r)); !ok {
+		os.Remove(savePath)
+		os.RemoveAll(projectDir)
+		w.Header().Set("Retry-After", fmt.Sprintf("%d", retryAfter))
+		middleware.WriteJSON(w, http.StatusTooManyRequests, map[string]interface{}{
 			"error":               "Rate limit exceeded: you can scan only one project per day. Please try again tomorrow.",
 			"retry_after_seconds": retryAfter,
 		})
+		return
 	}
 
 	projectID := int(analysisID.Add(1))
 
-	go runAnalysis(projectID, extractDir)
+	go runAnalysis(projectID, projectDir, savePath)
 
-	return c.JSON(fiber.Map{
+	middleware.WriteJSON(w, http.StatusOK, map[string]interface{}{
 		"success":     true,
 		"analysis_id": projectID,
 		"message":     "Analysis started",
 	})
 }
 
-func runAnalysis(projectID int, projectPath string) {
+func sanitizeFilename(name string) string {
+	name = filepath.Base(name)
+	replacer := strings.NewReplacer("/", "_", "\\", "_", "..", "_")
+	return replacer.Replace(name)
+}
+
+// runAnalysis executes the SAST pipeline in a background goroutine, stores the
+// result and cleans up every temporary file (uploaded ZIP + extracted tree) so
+// /tmp never fills up on Vercel's ephemeral disk.
+func runAnalysis(projectID int, projectDir, zipPath string) {
 	analyzer := services.NewAnalyzer()
 	start := time.Now()
-	result, err := analyzer.AnalyzeProject(projectPath)
+	result, err := analyzer.AnalyzeProject(projectDir)
 	duration := time.Since(start)
+
+	// Always clean up: extracted project and uploaded archive.
+	defer func() {
+		os.RemoveAll(projectDir)
+		os.Remove(zipPath)
+	}()
 
 	if err != nil {
 		analysesMu.Lock()
@@ -109,34 +184,39 @@ func runAnalysis(projectID int, projectPath string) {
 	analysesMu.Unlock()
 }
 
+// lookupResult retrieves an analysis result by id.
+func lookupResult(id int) (*models.AnalysisResult, bool) {
+	analysesMu.RLock()
+	defer analysesMu.RUnlock()
+	result, exists := analyses[id]
+	return result, exists
+}
+
 type AnalysisHandler struct{}
 
-func (a *AnalysisHandler) AnalysisPage(c *fiber.Ctx) error {
-	id := c.Params("id")
-	return RenderTemplate(c, "analysis", map[string]interface{}{
+func (a *AnalysisHandler) AnalysisPage(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/analysis/")
+	RenderTemplate(w, r, "analysis", map[string]interface{}{
 		"AnalysisID": id,
 	})
 }
 
 type DashboardHandler struct{}
 
-func (d *DashboardHandler) ResultsPage(c *fiber.Ctx) error {
-	idStr := c.Params("id")
-	var id int
-	fmt.Sscanf(idStr, "%d", &id)
+func (d *DashboardHandler) ResultsPage(w http.ResponseWriter, r *http.Request) {
+	idStr := strings.TrimPrefix(r.URL.Path, "/results/")
+	id := parseInt(idStr)
 
-	analysesMu.RLock()
-	result, exists := analyses[id]
-	analysesMu.RUnlock()
-
+	result, exists := lookupResult(id)
 	if !exists {
-		return RenderTemplate(c, "results", map[string]interface{}{
+		RenderTemplate(w, r, "results", map[string]interface{}{
 			"HasResult":  false,
 			"AnalysisID": idStr,
 		})
+		return
 	}
 
-	return RenderTemplate(c, "results", map[string]interface{}{
+	RenderTemplate(w, r, "results", map[string]interface{}{
 		"HasResult":  true,
 		"AnalysisID": idStr,
 		"Result":     result,
@@ -145,124 +225,122 @@ func (d *DashboardHandler) ResultsPage(c *fiber.Ctx) error {
 
 type ReportsHandler struct{}
 
-func (r *ReportsHandler) ReportsPage(c *fiber.Ctx) error {
-	idStr := c.Params("id")
-	return RenderTemplate(c, "report", map[string]interface{}{
-		"AnalysisID": idStr,
+func (r *ReportsHandler) ReportsPage(w http.ResponseWriter, req *http.Request) {
+	id := strings.TrimPrefix(req.URL.Path, "/reports/")
+	RenderTemplate(w, req, "report", map[string]interface{}{
+		"AnalysisID": id,
 	})
 }
 
-func (r *ReportsHandler) DownloadReport(c *fiber.Ctx) error {
-	idStr := c.Params("id")
-	format := c.Params("format")
+func (r *ReportsHandler) DownloadReport(w http.ResponseWriter, req *http.Request) {
+	// Path: /api/reports/{id}/{format}
+	trimmed := strings.TrimPrefix(req.URL.Path, "/api/reports/")
+	parts := strings.Split(trimmed, "/")
+	if len(parts) != 2 {
+		middleware.WriteJSON(w, http.StatusBadRequest, map[string]interface{}{"error": "Invalid report path"})
+		return
+	}
+	idStr, format := parts[0], parts[1]
+	id := parseInt(idStr)
 
-	var id int
-	fmt.Sscanf(idStr, "%d", &id)
-
-	analysesMu.RLock()
-	result, exists := analyses[id]
-	analysesMu.RUnlock()
-
+	result, exists := lookupResult(id)
 	if !exists {
-		return c.Status(404).JSON(fiber.Map{"error": "Analysis not found"})
+		middleware.WriteJSON(w, http.StatusNotFound, map[string]interface{}{"error": "Analysis not found"})
+		return
 	}
 
 	reporter := services.NewReporter()
-	lang, _ := c.Locals("lang").(string)
-	if lang == "" {
-		lang = "en"
-	}
+	lang := middleware.LangFrom(req)
 
 	switch format {
 	case "json":
 		data, err := reporter.GenerateJSON(result)
 		if err != nil {
-			return c.Status(500).JSON(fiber.Map{"error": "Failed to generate report"})
+			middleware.WriteJSON(w, http.StatusInternalServerError, map[string]interface{}{"error": "Failed to generate report"})
+			return
 		}
-		c.Set("Content-Type", "application/json")
-		c.Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"blackhat-report-%d.json\"", id))
-		return c.Send(data)
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"blackhat-report-%d.json\"", id))
+		w.Write(data)
 	case "html":
 		html := reporter.GenerateHTML(result, lang)
-		c.Set("Content-Type", "text/html")
-		c.Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"blackhat-report-%d.html\"", id))
-		return c.SendString(html)
+		w.Header().Set("Content-Type", "text/html")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"blackhat-report-%d.html\"", id))
+		w.Write([]byte(html))
 	default:
-		return c.Status(400).JSON(fiber.Map{"error": "Unsupported format"})
+		middleware.WriteJSON(w, http.StatusBadRequest, map[string]interface{}{"error": "Unsupported format"})
 	}
 }
 
 type APIHandler struct{}
 
-func (api *APIHandler) AnalysisStatus(c *fiber.Ctx) error {
-	idStr := c.Params("id")
-	var id int
-	fmt.Sscanf(idStr, "%d", &id)
+func (api *APIHandler) AnalysisStatus(w http.ResponseWriter, r *http.Request) {
+	id := parseInt(strings.TrimPrefix(r.URL.Path, "/api/analysis/status/"))
 
-	analysesMu.RLock()
-	result, exists := analyses[id]
-	analysesMu.RUnlock()
-
+	result, exists := lookupResult(id)
 	if !exists {
-		return c.JSON(fiber.Map{
+		middleware.WriteJSON(w, http.StatusOK, map[string]interface{}{
 			"status": "running",
 		})
+		return
 	}
 
-	return c.JSON(fiber.Map{
+	middleware.WriteJSON(w, http.StatusOK, map[string]interface{}{
 		"status":        "completed",
 		"files_scanned": result.FilesScanned,
 		"duration":      result.DurationSeconds,
 	})
 }
 
-func (api *APIHandler) SecurityResults(c *fiber.Ctx) error {
-	idStr := c.Params("id")
-	var id int
-	fmt.Sscanf(idStr, "%d", &id)
+func (api *APIHandler) SecurityResults(w http.ResponseWriter, r *http.Request) {
+	id := parseInt(strings.TrimPrefix(r.URL.Path, "/api/results/security/"))
 
-	analysesMu.RLock()
-	result, exists := analyses[id]
-	analysesMu.RUnlock()
-
+	result, exists := lookupResult(id)
 	if !exists {
-		return c.JSON(fiber.Map{"findings": []interface{}{}})
+		middleware.WriteJSON(w, http.StatusOK, map[string]interface{}{"findings": []interface{}{}})
+		return
 	}
 
-	return c.JSON(fiber.Map{"findings": result.SecurityFindings})
+	middleware.WriteJSON(w, http.StatusOK, map[string]interface{}{"findings": result.SecurityFindings})
 }
 
-func (api *APIHandler) QualityResults(c *fiber.Ctx) error {
-	idStr := c.Params("id")
-	var id int
-	fmt.Sscanf(idStr, "%d", &id)
+func (api *APIHandler) QualityResults(w http.ResponseWriter, r *http.Request) {
+	id := parseInt(strings.TrimPrefix(r.URL.Path, "/api/results/quality/"))
 
-	analysesMu.RLock()
-	result, exists := analyses[id]
-	analysesMu.RUnlock()
-
+	result, exists := lookupResult(id)
 	if !exists {
-		return c.JSON(fiber.Map{"findings": []interface{}{}, "metrics": models.QualityMetrics{}})
+		middleware.WriteJSON(w, http.StatusOK, map[string]interface{}{
+			"findings": []interface{}{},
+			"metrics":  models.QualityMetrics{},
+		})
+		return
 	}
 
-	return c.JSON(fiber.Map{
+	middleware.WriteJSON(w, http.StatusOK, map[string]interface{}{
 		"findings": result.QualityFindings,
 		"metrics":  result.QualityMetrics,
 	})
 }
 
-func (api *APIHandler) DependencyResults(c *fiber.Ctx) error {
-	idStr := c.Params("id")
-	var id int
-	fmt.Sscanf(idStr, "%d", &id)
+func (api *APIHandler) DependencyResults(w http.ResponseWriter, r *http.Request) {
+	id := parseInt(strings.TrimPrefix(r.URL.Path, "/api/results/dependencies/"))
 
-	analysesMu.RLock()
-	result, exists := analyses[id]
-	analysesMu.RUnlock()
-
+	result, exists := lookupResult(id)
 	if !exists {
-		return c.JSON(fiber.Map{"vulnerabilities": []interface{}{}})
+		middleware.WriteJSON(w, http.StatusOK, map[string]interface{}{"vulnerabilities": []interface{}{}})
+		return
 	}
 
-	return c.JSON(fiber.Map{"vulnerabilities": result.DependencyVulns})
+	middleware.WriteJSON(w, http.StatusOK, map[string]interface{}{"vulnerabilities": result.DependencyVulns})
+}
+
+func parseInt(s string) int {
+	n := 0
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return 0
+		}
+		n = n*10 + int(c-'0')
+	}
+	return n
 }

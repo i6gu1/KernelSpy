@@ -1,15 +1,17 @@
 package handlers
 
 import (
+	"bytes"
 	"html/template"
-	"os"
+	"io/fs"
+	"log"
+	"net/http"
 	"path/filepath"
 	"strings"
 
+	"black-hat"
 	"black-hat/i18n"
 	"black-hat/middleware"
-
-	"github.com/gofiber/fiber/v2"
 )
 
 var rateLimiter = middleware.NewScanRateLimiter()
@@ -32,28 +34,26 @@ func init() {
 		},
 	}
 
-	var shared []string
-	shared = append(shared, getTemplateFiles("templates/layouts")...)
-	shared = append(shared, getTemplateFiles("templates/components")...)
-	shared = append(shared, getTemplateFiles("templates/partials")...)
+	tplFS := assets.Templates()
 
-	for _, page := range getTemplateFiles("templates/pages") {
+	var shared []string
+	shared = append(shared, getTemplateFiles(tplFS, "layouts")...)
+	shared = append(shared, getTemplateFiles(tplFS, "components")...)
+	shared = append(shared, getTemplateFiles(tplFS, "partials")...)
+
+	for _, page := range getTemplateFiles(tplFS, "pages") {
 		name := strings.TrimSuffix(filepath.Base(page), ".html")
 		files := append([]string{}, shared...)
 		files = append(files, page)
-		templates[name] = template.Must(template.New("").Funcs(funcMap).ParseFiles(files...))
+		templates[name] = template.Must(template.New("").Funcs(funcMap).ParseFS(tplFS, files...))
 	}
 }
 
-func RenderTemplate(c *fiber.Ctx, templateName string, data map[string]interface{}) error {
-	lang, ok := c.Locals("lang").(string)
-	if !ok {
-		lang = "en"
-	}
-	dir, ok := c.Locals("dir").(string)
-	if !ok {
-		dir = "ltr"
-	}
+// RenderTemplate renders a page into the response, resolving the language and
+// text direction from the request context (set by I18nMiddleware).
+func RenderTemplate(w http.ResponseWriter, r *http.Request, templateName string, data map[string]interface{}) {
+	lang := middleware.LangFrom(r)
+	dir := middleware.DirFrom(r)
 
 	if data == nil {
 		data = make(map[string]interface{})
@@ -64,14 +64,44 @@ func RenderTemplate(c *fiber.Ctx, templateName string, data map[string]interface
 
 	tmpl := templates[templateName]
 	if tmpl == nil {
-		return c.Status(500).SendString("template not found: " + templateName)
+		http.Error(w, "template not found: "+templateName, http.StatusInternalServerError)
+		return
 	}
 
-	c.Set(fiber.HeaderContentType, fiber.MIMETextHTMLCharsetUTF8)
-	return tmpl.ExecuteTemplate(c.Context().Response.BodyWriter(), templateName+".html", data)
+	var buf bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&buf, templateName+".html", data); err != nil {
+		log.Printf("template render error: %v", err)
+		http.Error(w, "template render error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write(buf.Bytes())
 }
 
-func RegisterRoutes(app *fiber.App) {
+func getTemplateFiles(tplFS fs.FS, dir string) []string {
+	var files []string
+	fs.WalkDir(tplFS, dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if strings.HasSuffix(path, ".html") {
+			files = append(files, path)
+		}
+		return nil
+	})
+	return files
+}
+
+// NewHandler builds the full HTTP handler (pages + API + static assets) and
+// wraps it with the middleware chain. This is the single entry point used by
+// both the local server (main.go) and the Vercel Go function (api/handler.go).
+func NewHandler() http.Handler {
+	mux := http.NewServeMux()
+
 	h := &HomeHandler{}
 	u := &UploadHandler{}
 	a := &AnalysisHandler{}
@@ -79,40 +109,27 @@ func RegisterRoutes(app *fiber.App) {
 	r := &ReportsHandler{}
 	api := &APIHandler{}
 
-	app.Get("/", h.Home)
-	app.Get("/how-it-works", func(c *fiber.Ctx) error {
-		return RenderTemplate(c, "how-it-works", nil)
+	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(assets.Static()))))
+
+	mux.HandleFunc("/", h.Home)
+	mux.HandleFunc("/how-it-works", func(w http.ResponseWriter, r *http.Request) {
+		RenderTemplate(w, r, "how-it-works", nil)
 	})
-	app.Get("/upload", u.UploadPage)
-	app.Get("/analysis/:id", a.AnalysisPage)
-	app.Get("/results/:id", d.ResultsPage)
-	app.Get("/reports/:id", r.ReportsPage)
-	app.Get("/health", func(c *fiber.Ctx) error {
-		return c.JSON(fiber.Map{"status": "ok"})
+	mux.HandleFunc("/upload", u.UploadPage)
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		middleware.WriteJSON(w, http.StatusOK, map[string]interface{}{"status": "ok"})
 	})
 
-	apiGroup := app.Group("/api")
-	apiGroup.Post("/upload", rateLimiter.Limit, u.Upload)
-	apiGroup.Get("/analysis/status/:id", api.AnalysisStatus)
-	apiGroup.Get("/results/security/:id", api.SecurityResults)
-	apiGroup.Get("/results/quality/:id", api.QualityResults)
-	apiGroup.Get("/results/dependencies/:id", api.DependencyResults)
-	apiGroup.Get("/reports/:id/:format", r.DownloadReport)
-}
+	mux.Handle("/analysis/", http.HandlerFunc(a.AnalysisPage))
+	mux.Handle("/results/", http.HandlerFunc(d.ResultsPage))
+	mux.Handle("/reports/", http.HandlerFunc(r.ReportsPage))
 
-func getTemplateFiles(dir string) []string {
-	var files []string
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return files
-	}
-	for _, entry := range entries {
-		if entry.IsDir() {
-			subFiles := getTemplateFiles(filepath.Join(dir, entry.Name()))
-			files = append(files, subFiles...)
-		} else if strings.HasSuffix(entry.Name(), ".html") {
-			files = append(files, filepath.Join(dir, entry.Name()))
-		}
-	}
-	return files
+	mux.Handle("/api/upload", rateLimiter.Limit(http.HandlerFunc(u.Upload)))
+	mux.Handle("/api/analysis/status/", http.HandlerFunc(api.AnalysisStatus))
+	mux.Handle("/api/results/security/", http.HandlerFunc(api.SecurityResults))
+	mux.Handle("/api/results/quality/", http.HandlerFunc(api.QualityResults))
+	mux.Handle("/api/results/dependencies/", http.HandlerFunc(api.DependencyResults))
+	mux.Handle("/api/reports/", http.HandlerFunc(r.DownloadReport))
+
+	return middleware.Recover(middleware.SecurityHeaders(middleware.I18nMiddleware(mux)))
 }

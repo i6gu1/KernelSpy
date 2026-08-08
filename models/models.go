@@ -108,11 +108,3 @@ type AnalysisResult struct {
 	Suggestions        []string                  `json:"suggestions"`
 	Error              string                    `json:"error"`
 }
-
-type AIResult struct {
-	Summary          string                    `json:"summary"`
-	SecurityFindings []SecurityFinding         `json:"security_findings"`
-	QualityFindings  []QualityFinding          `json:"quality_findings"`
-	DependencyVulns  []DependencyVulnerability `json:"dependency_vulns"`
-	Suggestions      []string                  `json:"suggestions"`
-}

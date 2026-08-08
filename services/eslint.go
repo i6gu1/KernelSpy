@@ -1,116 +1,131 @@
 package services
 
 import (
+	"encoding/json"
+	"log"
+
 	"black-hat/models"
-	"os/exec"
-	"strconv"
-	"strings"
 )
 
+// ESLintRunner scans JavaScript/TypeScript projects with ESLint configured with
+// security plugins (eslint-plugin-security, eslint-config-airbnb, etc. are
+// resolved from the project or a global install). Messages whose ruleId begins
+// with "security/" are treated as security findings; everything else becomes a
+// quality finding, with metrics derived from well-known rule families.
 type ESLintRunner struct{}
 
 func NewESLintRunner() *ESLintRunner {
 	return &ESLintRunner{}
 }
 
-func (e *ESLintRunner) Run(projectPath string) ([]models.QualityFinding, models.QualityMetrics) {
-	var findings []models.QualityFinding
-	var metrics models.QualityMetrics
-
-	cmd := exec.Command("npx", "eslint", "--format", "json", "--quiet", projectPath)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return e.generateDefaultFindings(projectPath)
-	}
-
-	outputStr := string(output)
-	if !strings.Contains(outputStr, "messages") {
-		return e.generateDefaultFindings(projectPath)
-	}
-
-	fileParts := strings.Split(outputStr, "\"filePath\":")
-	for _, part := range fileParts[1:] {
-		filePath := extractJSONValue(part, "filePath")
-		msgParts := strings.Split(part, "\"message\":")
-		for _, msg := range msgParts[1:] {
-			finding := models.QualityFinding{
-				Tool:        "eslint",
-				FilePath:    filePath,
-				Description: extractJSONValue(msg, "message"),
-				Category:    "style",
-				Severity:    "low",
-			}
-			if sev := extractJSONValue(msg, "severity"); sev == "2" {
-				finding.Severity = "medium"
-				finding.Category = "quality"
-			}
-			findings = append(findings, finding)
-			metrics.StyleIssues++
-		}
-	}
-
-	return findings, metrics
+// eslintOutput mirrors the ESLint JSON formatter output (an array of files).
+type eslintOutput struct {
+	FilePaths []eslintFile `json:"-"`
 }
 
-func (e *ESLintRunner) generateDefaultFindings(projectPath string) ([]models.QualityFinding, models.QualityMetrics) {
-	var findings []models.QualityFinding
-	var metrics models.QualityMetrics
+type eslintFile struct {
+	FilePath string          `json:"filePath"`
+	Messages []eslintMessage `json:"messages"`
+}
 
-	cmd := exec.Command("find", projectPath, "-name", "*.js", "-o", "-name", "*.ts", "-o", "-name", "*.jsx", "-o", "-name", "*.tsx")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return findings, metrics
+type eslintMessage struct {
+	RuleID  string `json:"ruleId"`
+	Severity int    `json:"severity"`
+	Message string `json:"message"`
+	Line    int    `json:"line"`
+}
+
+func (e *ESLintRunner) Run(projectPath string) ([]models.SecurityFinding, []models.QualityFinding, models.QualityMetrics) {
+	var security []models.SecurityFinding
+	var quality []models.QualityFinding
+	metrics := models.QualityMetrics{}
+
+	// Run eslint on the project. --no-eslintrc is deliberately avoided so the
+	// project's own config (and any security plugins it enables) is honored.
+	out, ok := runTool("eslint", "--format", "json", "--quiet", projectPath)
+	if !ok || len(out) == 0 {
+		return security, quality, metrics
 	}
 
-	files := strings.Split(strings.TrimSpace(string(output)), "\n")
-	for _, file := range files {
-		if file == "" || strings.Contains(file, "node_modules") || strings.Contains(file, ".git") {
-			continue
-		}
-		data, err := readFileContent(file)
-		if err != nil {
-			continue
-		}
-		content := string(data)
-		lines := strings.Split(content, "\n")
+	var files []eslintFile
+	if err := json.Unmarshal(out, &files); err != nil {
+		log.Printf("[eslint] failed to parse output: %v", err)
+		return security, quality, metrics
+	}
 
-		totalLines := len(lines)
-		if totalLines > 300 {
-			metrics.LargeFiles++
-			findings = append(findings, models.QualityFinding{
-				Tool:        "eslint",
-				FilePath:    file,
-				Description: "File is too large (" + strconv.Itoa(totalLines) + " lines)",
-				Category:    "large_file",
-				Severity:    "low",
-			})
-		}
-
-		for i, line := range lines {
-			trimmed := strings.TrimSpace(line)
-			if trimmed == "" || strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "*") {
+	for _, f := range files {
+		for _, m := range f.Messages {
+			if m.Message == "" {
 				continue
 			}
-			if len(trimmed) > 120 {
-				metrics.StyleIssues++
-				if len(findings) < 50 {
-					findings = append(findings, models.QualityFinding{
-						Tool:        "eslint",
-						FilePath:    file,
-						LineNumber:  i + 1,
-						Description: "Line exceeds 120 characters",
-						Category:    "style",
-						Severity:    "info",
-					})
-				}
+			ruleID := m.RuleID
+			if ruleID == "" {
+				ruleID = "eslint"
+			}
+			severity := "low"
+			if m.Severity >= 2 {
+				severity = "high"
+			} else if m.Severity == 1 {
+				severity = "medium"
+			}
+
+			if isSecurityRule(ruleID) {
+				security = append(security, models.SecurityFinding{
+					Rule:           ruleID,
+					FilePath:       f.FilePath,
+					LineNumber:     m.Line,
+					Severity:       severity,
+					Description:    m.Message,
+					Recommendation: "Fix the violation reported by ESLint rule " + ruleID + ".",
+					Tool:           "eslint",
+				})
+			} else {
+				quality = append(quality, models.QualityFinding{
+					Category:    ruleID,
+					FilePath:    f.FilePath,
+					LineNumber:  m.Line,
+					Severity:    severity,
+					Description: m.Message,
+					Tool:        "eslint",
+				})
+				trackMetric(&metrics, ruleID)
 			}
 		}
 	}
 
-	return findings, metrics
+	return security, quality, metrics
 }
 
-func readFileContent(path string) ([]byte, error) {
-	cmd := exec.Command("cat", path)
-	return cmd.Output()
+// isSecurityRule reports whether an ESLint rule id belongs to a security
+// plugin (security/*, no-secrets/*, eslint-plugin-security, etc.).
+func isSecurityRule(ruleID string) bool {
+	lower := ruleID
+	for _, prefix := range []string{"security/", "no-secrets/", "detect-", "no-eval", "no-implied-eval", "no-new-func", "no-script-url", "no-unsafe-regex", "xss/"} {
+		if len(lower) >= len(prefix) && lower[:len(prefix)] == prefix {
+			return true
+		}
+	}
+	return false
+}
+
+// trackMetric buckets common ESLint rules into the quality metrics schema.
+func trackMetric(m *models.QualityMetrics, ruleID string) {
+	switch ruleID {
+	case "no-unused-vars":
+		m.UnusedVars++
+	case "no-unused-imports", "@typescript-eslint/no-unused-vars":
+		m.UnusedImports++
+	case "no-duplicate-imports", "no-dupe-keys":
+		m.DuplicatedCode++
+	case "complexity", "no-cond-assign":
+		m.ComplexFunctions++
+	case "max-lines", "max-lines-per-function":
+		m.LargeFiles++
+	case "max-depth", "max-nested-callbacks":
+		m.LongFunctions++
+	case "no-unreachable", "no-constant-condition":
+		m.DeadCode++
+	default:
+		m.StyleIssues++
+	}
 }

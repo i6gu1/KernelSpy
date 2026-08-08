@@ -1,51 +1,81 @@
 package services
 
 import (
+	"encoding/json"
+	"log"
+	"os"
+
 	"black-hat/models"
-	"os/exec"
-	"strings"
 )
 
+// GitleaksRunner scans for hardcoded secrets (API keys, AWS keys, tokens,
+// passwords) with Gitleaks and maps its JSON report to security findings.
 type GitleaksRunner struct{}
 
 func NewGitleaksRunner() *GitleaksRunner {
 	return &GitleaksRunner{}
 }
 
+// gitleaksFinding mirrors one entry of the Gitleaks JSON report.
+type gitleaksFinding struct {
+	RuleID      string `json:"RuleID"`
+	Description string `json:"Description"`
+	StartLine   int    `json:"StartLine"`
+	EndLine     int    `json:"EndLine"`
+	File        string `json:"File"`
+	Secret      string `json:"Secret"`
+	Match       string `json:"Match"`
+}
+
 func (g *GitleaksRunner) Run(projectPath string) []models.SecurityFinding {
-	var findings []models.SecurityFinding
-
-	cmd := exec.Command("gitleaks", "detect", "--source", projectPath, "--report-format", "json", "--no-banner")
-	output, err := cmd.CombinedOutput()
+	// Gitleaks exits non-zero when leaks are found; the JSON report is written
+	// to a unique temp file, so we parse that instead of stdout.
+	reportFile, err := os.CreateTemp("", "gitleaks-report-*.json")
 	if err != nil {
-		return findings
+		return nil
+	}
+	reportPath := reportFile.Name()
+	reportFile.Close()
+	defer removeFile(reportPath)
+
+	// Gitleaks exits with code 1 when it finds leaks — that is its designed
+	// behavior, not a failure — so the ok flag from runTool must NOT gate the
+	// report parsing. Findings live in the report file, which may be the only
+	// output. If the tool is missing, the temp file stays empty and the
+	// len(data)==0 check below returns nil gracefully.
+	runTool("gitleaks", "detect", "--source", projectPath,
+		"--report-format", "json", "--report-path", reportPath, "--no-banner")
+
+	data, readErr := readFileContent(reportPath)
+	if readErr != nil || len(data) == 0 {
+		return nil
 	}
 
-	outputStr := string(output)
-	if !strings.Contains(outputStr, "RuleID") {
-		return findings
+	var findings []gitleaksFinding
+	if err := json.Unmarshal(data, &findings); err != nil {
+		log.Printf("[gitleaks] failed to parse report: %v", err)
+		return nil
 	}
 
-	entries := strings.Split(outputStr, "\"RuleID\":")
-	for _, entry := range entries[1:] {
-		finding := models.SecurityFinding{
-			Tool:     "gitleaks",
-			Rule:     extractJSONValue(entry, "RuleID"),
-			FilePath: extractJSONValue(entry, "File"),
-			Severity: "high",
+	var result []models.SecurityFinding
+	for _, f := range findings {
+		if f.RuleID == "" {
+			continue
 		}
-		if finding.Rule != "" {
-			finding.Description = "Secret detected: " + finding.Rule
-			finding.Recommendation = "Remove the secret from the code and rotate the credentials"
-		} else {
-			finding.Description = "Potential secret detected in code"
-			finding.Recommendation = "Review the code and remove any hardcoded secrets"
+		description := f.Description
+		if description == "" {
+			description = "Secret detected: " + f.RuleID
 		}
-		if lineNum := extractJSONValue(entry, "StartLine"); lineNum != "" {
-			finding.Description += " (line " + lineNum + ")"
-		}
-		findings = append(findings, finding)
+		result = append(result, models.SecurityFinding{
+			Rule:           f.RuleID,
+			FilePath:       f.File,
+			LineNumber:     f.StartLine,
+			Severity:       "high",
+			Description:    description,
+			Recommendation: "Remove the secret from the code, rotate the credential, and use a secrets manager.",
+			Tool:           "gitleaks",
+		})
 	}
 
-	return findings
+	return result
 }
