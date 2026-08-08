@@ -3,6 +3,8 @@ package services
 import (
 	"encoding/json"
 	"log"
+	"os"
+	"path/filepath"
 
 	"black-hat/models"
 )
@@ -35,13 +37,42 @@ type eslintMessage struct {
 	Line    int    `json:"line"`
 }
 
+// defaultESLintConfig activates eslint-plugin-security when the uploaded
+// project ships no ESLint config of its own. build.sh installs eslint@8 with
+// eslint-plugin-security globally, so the plugin name resolves.
+const defaultESLintConfig = `{
+  "root": true,
+  "env": { "browser": true, "node": true, "es2021": true },
+  "parserOptions": { "ecmaVersion": "latest", "sourceType": "module" },
+  "plugins": ["security"],
+  "extends": ["plugin:security/recommended-legacy"],
+  "rules": {}
+}
+`
+
+// ensureConfig writes a default .eslintrc.json into the project directory when
+// the project has no ESLint config, so the security plugins are actually used.
+func ensureESLintConfig(projectPath string) {
+	existing := []string{
+		".eslintrc", ".eslintrc.json", ".eslintrc.js", ".eslintrc.cjs",
+		"eslint.config.js", "eslint.config.mjs", "eslint.config.cjs",
+	}
+	for _, name := range existing {
+		if _, err := os.Stat(filepath.Join(projectPath, name)); err == nil {
+			return
+		}
+	}
+	os.WriteFile(filepath.Join(projectPath, ".eslintrc.json"), []byte(defaultESLintConfig), 0o644)
+}
+
 func (e *ESLintRunner) Run(projectPath string) ([]models.SecurityFinding, []models.QualityFinding, models.QualityMetrics) {
 	var security []models.SecurityFinding
 	var quality []models.QualityFinding
 	metrics := models.QualityMetrics{}
 
-	// Run eslint on the project. --no-eslintrc is deliberately avoided so the
-	// project's own config (and any security plugins it enables) is honored.
+	// Run eslint on the project, honoring the project's own config when it has
+	// one and injecting the security-plugin config otherwise.
+	ensureESLintConfig(projectPath)
 	out, ok := runTool("eslint", "--format", "json", "--quiet", projectPath)
 	if !ok || len(out) == 0 {
 		return security, quality, metrics

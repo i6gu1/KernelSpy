@@ -60,6 +60,12 @@ func (u *UploadHandler) Upload(w http.ResponseWriter, r *http.Request) {
 		middleware.WriteJSON(w, http.StatusBadRequest, map[string]interface{}{"error": "Upload failed"})
 		return
 	}
+	// Remove the multipart temp files (file parts larger than the memory
+	// threshold are spilled to /tmp by the stdlib) as soon as the form has
+	// been parsed, so they never leak even if FormFile fails below.
+	if r.MultipartForm != nil {
+		defer r.MultipartForm.RemoveAll()
+	}
 
 	file, header, err := r.FormFile("project")
 	if err != nil {
@@ -67,10 +73,6 @@ func (u *UploadHandler) Upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer file.Close()
-	// Remove the multipart temp files (file parts larger than the memory
-	// threshold are spilled to /tmp by the stdlib). The uploaded file has
-	// already been copied out by the time this handler returns.
-	defer r.MultipartForm.RemoveAll()
 
 	if !strings.HasSuffix(strings.ToLower(header.Filename), ".zip") {
 		middleware.WriteJSON(w, http.StatusBadRequest, map[string]interface{}{"error": "Unsupported archive. Please upload a ZIP file."})
