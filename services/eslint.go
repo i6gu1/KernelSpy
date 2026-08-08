@@ -31,10 +31,10 @@ type eslintFile struct {
 }
 
 type eslintMessage struct {
-	RuleID  string `json:"ruleId"`
+	RuleID   string `json:"ruleId"`
 	Severity int    `json:"severity"`
-	Message string `json:"message"`
-	Line    int    `json:"line"`
+	Message  string `json:"message"`
+	Line     int    `json:"line"`
 }
 
 // defaultESLintConfig activates eslint-plugin-security when the uploaded
@@ -52,6 +52,9 @@ const defaultESLintConfig = `{
 
 // ensureConfig writes a default .eslintrc.json into the project directory when
 // the project has no ESLint config, so the security plugins are actually used.
+// Projects that configure ESLint via a .eslintrc* / eslint.config.* file or the
+// "eslintConfig" field of package.json are left untouched (an injected
+// .eslintrc.json would otherwise take precedence and override their config).
 func ensureESLintConfig(projectPath string) {
 	existing := []string{
 		".eslintrc", ".eslintrc.json", ".eslintrc.js", ".eslintrc.cjs",
@@ -59,6 +62,14 @@ func ensureESLintConfig(projectPath string) {
 	}
 	for _, name := range existing {
 		if _, err := os.Stat(filepath.Join(projectPath, name)); err == nil {
+			return
+		}
+	}
+	if data, err := os.ReadFile(filepath.Join(projectPath, "package.json")); err == nil {
+		var pkg struct {
+			ESLintConfig json.RawMessage `json:"eslintConfig"`
+		}
+		if json.Unmarshal(data, &pkg) == nil && len(pkg.ESLintConfig) > 0 && string(pkg.ESLintConfig) != "null" {
 			return
 		}
 	}

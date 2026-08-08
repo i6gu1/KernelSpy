@@ -15,34 +15,34 @@ import (
 // their JSON outputs into the single unified report schema the frontend
 // expects. No AI is used anywhere — findings come strictly from the tools.
 type Analyzer struct {
-	detector  *Detector
-	semgrep   *SemgrepRunner
-	gosec     *GosecRunner
-	njsscan   *NjsScanRunner
-	bandit    *BanditRunner
-	eslint    *ESLintRunner
-	trivy     *TrivyRunner
-	gitleaks  *GitleaksRunner
-	golangci  *GolangCIRunner
-	clippy    *ClippyRunner
-	pmd       *PMDRunner
-	phpstan   *PHPStanRunner
+	detector *Detector
+	semgrep  *SemgrepRunner
+	gosec    *GosecRunner
+	njsscan  *NjsScanRunner
+	bandit   *BanditRunner
+	eslint   *ESLintRunner
+	trivy    *TrivyRunner
+	gitleaks *GitleaksRunner
+	golangci *GolangCIRunner
+	clippy   *ClippyRunner
+	pmd      *PMDRunner
+	phpstan  *PHPStanRunner
 }
 
 func NewAnalyzer() *Analyzer {
 	return &Analyzer{
-		detector:  NewDetector(),
-		semgrep:   NewSemgrepRunner(),
-		gosec:     NewGosecRunner(),
-		njsscan:   NewNjsScanRunner(),
-		bandit:    NewBanditRunner(),
-		eslint:    NewESLintRunner(),
-		trivy:     NewTrivyRunner(),
-		gitleaks:  NewGitleaksRunner(),
-		golangci:  NewGolangCIRunner(),
-		clippy:    NewClippyRunner(),
-		pmd:       NewPMDRunner(),
-		phpstan:   NewPHPStanRunner(),
+		detector: NewDetector(),
+		semgrep:  NewSemgrepRunner(),
+		gosec:    NewGosecRunner(),
+		njsscan:  NewNjsScanRunner(),
+		bandit:   NewBanditRunner(),
+		eslint:   NewESLintRunner(),
+		trivy:    NewTrivyRunner(),
+		gitleaks: NewGitleaksRunner(),
+		golangci: NewGolangCIRunner(),
+		clippy:   NewClippyRunner(),
+		pmd:      NewPMDRunner(),
+		phpstan:  NewPHPStanRunner(),
 	}
 }
 

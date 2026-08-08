@@ -19,14 +19,14 @@ func NewTrivyRunner() *TrivyRunner {
 // trivyOutput mirrors the relevant fields of `trivy fs --format json`.
 type trivyOutput struct {
 	Results []struct {
-		Target           string `json:"Target"`
-		Vulnerabilities  []struct {
-			VulnerabilityID   string `json:"VulnerabilityID"`
-			PkgName           string `json:"PkgName"`
-			InstalledVersion  string `json:"InstalledVersion"`
-			FixedVersion      string `json:"FixedVersion"`
-			Severity          string `json:"Severity"`
-			PrimaryURL        string `json:"PrimaryURL"`
+		Target          string `json:"Target"`
+		Vulnerabilities []struct {
+			VulnerabilityID  string `json:"VulnerabilityID"`
+			PkgName          string `json:"PkgName"`
+			InstalledVersion string `json:"InstalledVersion"`
+			FixedVersion     string `json:"FixedVersion"`
+			Severity         string `json:"Severity"`
+			PrimaryURL       string `json:"PrimaryURL"`
 		} `json:"Vulnerabilities"`
 	} `json:"Results"`
 }
