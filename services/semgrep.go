@@ -55,7 +55,7 @@ func (s *SemgrepRunner) Run(projectPath string) []models.SecurityFinding {
 		}
 		findings = append(findings, models.SecurityFinding{
 			Rule:           r.CheckID,
-			FilePath:       r.Path,
+			FilePath:       relPath(projectPath, r.Path),
 			LineNumber:     r.Start.Line,
 			Severity:       normalizeSeverity(r.Extra.Severity),
 			Description:    description,

@@ -84,6 +84,33 @@ func runToolInDir(dir, name string, args ...string) ([]byte, bool) {
 	return out, true
 }
 
+// relPath converts a tool-reported file path into one relative to the project
+// root, so findings are portable and never leak the server's temp-directory
+// layout (e.g. "/tmp/blackhat-projects/project_123/src/app.py" -> "src/app.py").
+// Already-relative paths (gosec reports "./pkg/x.go", gitleaks "src/app.py")
+// are cleaned and returned unchanged. Paths that cannot be made relative (or
+// that point outside the project) are returned as-is.
+func relPath(projectPath, p string) string {
+	if p == "" {
+		return p
+	}
+	if !filepath.IsAbs(p) {
+		// Already-relative path (gosec reports "./pkg/x.go", gitleaks
+		// "src/app.py"): normalize separators. filepath.Clean strips any
+		// leading "./" so the result is a plain project-relative path.
+		return filepath.ToSlash(filepath.Clean(p))
+	}
+	rel, err := filepath.Rel(projectPath, p)
+	if err != nil {
+		return p
+	}
+	rel = filepath.ToSlash(rel)
+	if rel == ".." || strings.HasPrefix(rel, "../") {
+		return p
+	}
+	return rel
+}
+
 // normalizeSeverity maps the many severity vocabularies used by the different
 // tools onto the single schema the frontend expects: critical|high|medium|low.
 func normalizeSeverity(s string) string {

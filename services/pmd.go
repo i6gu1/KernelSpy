@@ -32,7 +32,7 @@ func (p *PMDRunner) Run(projectPath string) ([]models.QualityFinding, models.Qua
 		finding := models.QualityFinding{
 			Tool:        "pmd",
 			Description: extractJSONValue(part, "description"),
-			FilePath:    extractJSONValue(part, "filename"),
+			FilePath:    relPath(projectPath, extractJSONValue(part, "filename")),
 			Category:    extractJSONValue(part, "ruleset"),
 			Severity:    "medium",
 		}
@@ -69,7 +69,7 @@ func (p *PMDRunner) generateDefaultFindings(projectPath string) ([]models.Qualit
 			metrics.LargeFiles++
 			findings = append(findings, models.QualityFinding{
 				Tool:        "pmd",
-				FilePath:    file,
+				FilePath:    relPath(projectPath, file),
 				Description: "Large file detected",
 				Category:    "large_file",
 				Severity:    "low",
@@ -86,7 +86,7 @@ func (p *PMDRunner) generateDefaultFindings(projectPath string) ([]models.Qualit
 				if len(findings) < 50 {
 					findings = append(findings, models.QualityFinding{
 						Tool:        "pmd",
-						FilePath:    file,
+						FilePath:    relPath(projectPath, file),
 						LineNumber:  i + 1,
 						Description: "Line exceeds 120 characters",
 						Category:    "style",

@@ -57,7 +57,7 @@ func (n *NjsScanRunner) Run(projectPath string) []models.SecurityFinding {
 		}
 		findings = append(findings, models.SecurityFinding{
 			Rule:           title,
-			FilePath:       node.Filename,
+			FilePath:       relPath(projectPath, node.Filename),
 			LineNumber:     node.Line,
 			Severity:       normalizeSeverity(node.Severity),
 			Description:    description,

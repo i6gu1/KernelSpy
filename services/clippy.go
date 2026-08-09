@@ -71,7 +71,7 @@ func (c *ClippyRunner) generateDefaultFindings(projectPath string) ([]models.Qua
 			metrics.LargeFiles++
 			findings = append(findings, models.QualityFinding{
 				Tool:        "clippy",
-				FilePath:    file,
+				FilePath:    relPath(projectPath, file),
 				Description: "Large file detected",
 				Category:    "large_file",
 				Severity:    "low",
@@ -88,7 +88,7 @@ func (c *ClippyRunner) generateDefaultFindings(projectPath string) ([]models.Qua
 				if len(findings) < 50 {
 					findings = append(findings, models.QualityFinding{
 						Tool:        "clippy",
-						FilePath:    file,
+						FilePath:    relPath(projectPath, file),
 						LineNumber:  i + 1,
 						Description: "Line exceeds 120 characters",
 						Category:    "style",

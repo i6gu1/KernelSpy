@@ -19,6 +19,11 @@ import (
 var (
 	analyses   = make(map[int]*models.AnalysisResult)
 	analysesMu sync.RWMutex
+	// pending tracks analyses that have been accepted but not yet finished
+	// (their result is still being computed in runAnalysis). It lets the
+	// status endpoint tell "scan in flight" apart from "unknown analysis id"
+	// instead of reporting every unknown id as "running" forever.
+	pending    = make(map[int]struct{})
 	analysisID atomic.Int32
 )
 
@@ -139,6 +144,12 @@ func (u *UploadHandler) Upload(w http.ResponseWriter, r *http.Request) {
 
 	projectID := int(analysisID.Add(1))
 
+	// Mark the analysis as in-flight before the goroutine starts, so a status
+	// poll that lands in between never misreads it as "not found".
+	analysesMu.Lock()
+	pending[projectID] = struct{}{}
+	analysesMu.Unlock()
+
 	go runAnalysis(projectID, projectDir, savePath)
 
 	middleware.WriteJSON(w, http.StatusOK, map[string]interface{}{
@@ -158,16 +169,22 @@ func sanitizeFilename(name string) string {
 // result and cleans up every temporary file (uploaded ZIP + extracted tree) so
 // /tmp never fills up on Vercel's ephemeral disk.
 func runAnalysis(projectID int, projectDir, zipPath string) {
+	// Register the cleanup before doing any work so it also runs on panic:
+	// mark the analysis as no longer in-flight (otherwise the status
+	// endpoint would report "running" forever for this id), then remove the
+	// extracted project and uploaded archive.
+	defer func() {
+		analysesMu.Lock()
+		delete(pending, projectID)
+		analysesMu.Unlock()
+		os.RemoveAll(projectDir)
+		os.Remove(zipPath)
+	}()
+
 	analyzer := services.NewAnalyzer()
 	start := time.Now()
 	result, err := analyzer.AnalyzeProject(projectDir)
 	duration := time.Since(start)
-
-	// Always clean up: extracted project and uploaded archive.
-	defer func() {
-		os.RemoveAll(projectDir)
-		os.Remove(zipPath)
-	}()
 
 	if err != nil {
 		analysesMu.Lock()
@@ -281,6 +298,20 @@ func (api *APIHandler) AnalysisStatus(w http.ResponseWriter, r *http.Request) {
 
 	result, exists := lookupResult(id)
 	if !exists {
+		analysesMu.RLock()
+		_, running := pending[id]
+		analysesMu.RUnlock()
+
+		if !running {
+			// Unknown id: either it never existed (rate-limited upload, bad
+			// URL) or the server restarted mid-scan. Tell the client instead
+			// of reporting a fake "running" state that would poll forever.
+			middleware.WriteJSON(w, http.StatusNotFound, map[string]interface{}{
+				"error": "Analysis not found",
+			})
+			return
+		}
+
 		middleware.WriteJSON(w, http.StatusOK, map[string]interface{}{
 			"status": "running",
 		})

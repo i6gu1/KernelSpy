@@ -52,7 +52,7 @@ func (b *BanditRunner) Run(projectPath string) []models.SecurityFinding {
 		}
 		findings = append(findings, models.SecurityFinding{
 			Rule:           rule,
-			FilePath:       r.Filename,
+			FilePath:       relPath(projectPath, r.Filename),
 			LineNumber:     r.LineNumber,
 			Severity:       normalizeSeverity(r.IssueSeverity),
 			Description:    r.IssueText,

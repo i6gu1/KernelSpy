@@ -114,7 +114,7 @@ func (e *ESLintRunner) Run(projectPath string) ([]models.SecurityFinding, []mode
 			if isSecurityRule(ruleID) {
 				security = append(security, models.SecurityFinding{
 					Rule:           ruleID,
-					FilePath:       f.FilePath,
+					FilePath:       relPath(projectPath, f.FilePath),
 					LineNumber:     m.Line,
 					Severity:       severity,
 					Description:    m.Message,
@@ -124,7 +124,7 @@ func (e *ESLintRunner) Run(projectPath string) ([]models.SecurityFinding, []mode
 			} else {
 				quality = append(quality, models.QualityFinding{
 					Category:    ruleID,
-					FilePath:    f.FilePath,
+					FilePath:    relPath(projectPath, f.FilePath),
 					LineNumber:  m.Line,
 					Severity:    severity,
 					Description: m.Message,

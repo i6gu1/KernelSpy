@@ -56,7 +56,7 @@ func (g *GosecRunner) Run(projectPath string) []models.SecurityFinding {
 		}
 		findings = append(findings, models.SecurityFinding{
 			Rule:           issue.RuleID,
-			FilePath:       issue.File,
+			FilePath:       relPath(projectPath, issue.File),
 			LineNumber:     line,
 			Severity:       normalizeSeverity(issue.Severity),
 			Description:    description,

@@ -68,7 +68,7 @@ func (g *GitleaksRunner) Run(projectPath string) []models.SecurityFinding {
 		}
 		result = append(result, models.SecurityFinding{
 			Rule:           f.RuleID,
-			FilePath:       f.File,
+			FilePath:       relPath(projectPath, f.File),
 			LineNumber:     f.StartLine,
 			Severity:       "high",
 			Description:    description,

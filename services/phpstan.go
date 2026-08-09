@@ -34,7 +34,7 @@ func (p *PHPStanRunner) Run(projectPath string) ([]models.QualityFinding, models
 		for _, msg := range msgParts[1:] {
 			finding := models.QualityFinding{
 				Tool:        "phpstan",
-				FilePath:    filePath,
+				FilePath:    relPath(projectPath, filePath),
 				Description: extractJSONValue(msg, "message"),
 				Category:    "quality",
 				Severity:    "medium",
@@ -76,7 +76,7 @@ func (p *PHPStanRunner) generateDefaultFindings(projectPath string) ([]models.Qu
 			metrics.LargeFiles++
 			findings = append(findings, models.QualityFinding{
 				Tool:        "phpstan",
-				FilePath:    file,
+				FilePath:    relPath(projectPath, file),
 				Description: "Large file detected",
 				Category:    "large_file",
 				Severity:    "low",
@@ -93,7 +93,7 @@ func (p *PHPStanRunner) generateDefaultFindings(projectPath string) ([]models.Qu
 				if len(findings) < 50 {
 					findings = append(findings, models.QualityFinding{
 						Tool:        "phpstan",
-						FilePath:    file,
+						FilePath:    relPath(projectPath, file),
 						LineNumber:  i + 1,
 						Description: "Line exceeds 120 characters",
 						Category:    "style",

@@ -32,7 +32,7 @@ func (g *GolangCIRunner) Run(projectPath string) ([]models.QualityFinding, model
 		finding := models.QualityFinding{
 			Tool:        "golangci-lint",
 			Description: extractJSONValue(part, "Text"),
-			FilePath:    extractJSONValue(part, "Filename"),
+			FilePath:    relPath(projectPath, extractJSONValue(part, "Filename")),
 			Category:    "quality",
 			Severity:    "medium",
 		}
@@ -73,7 +73,7 @@ func (g *GolangCIRunner) generateDefaultFindings(projectPath string) ([]models.Q
 			metrics.LargeFiles++
 			findings = append(findings, models.QualityFinding{
 				Tool:        "golangci-lint",
-				FilePath:    file,
+				FilePath:    relPath(projectPath, file),
 				Description: "Large file detected",
 				Category:    "large_file",
 				Severity:    "low",
@@ -90,7 +90,7 @@ func (g *GolangCIRunner) generateDefaultFindings(projectPath string) ([]models.Q
 				if len(findings) < 50 {
 					findings = append(findings, models.QualityFinding{
 						Tool:        "golangci-lint",
-						FilePath:    file,
+						FilePath:    relPath(projectPath, file),
 						LineNumber:  i + 1,
 						Description: "Line exceeds 120 characters",
 						Category:    "style",
