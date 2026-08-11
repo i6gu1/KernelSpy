@@ -154,12 +154,13 @@ install_depcheck() {
   if [ -d "$(dirname "$DEPCHECK_HOME")/dependency-check-$ver" ] && [ "$DEPCHECK_HOME" != "$(dirname "$DEPCHECK_HOME")/dependency-check-$ver" ]; then
     rm -rf "$DEPCHECK_HOME"
     mv "$(dirname "$DEPCHECK_HOME")/dependency-check-$ver" "$DEPCHECK_HOME"
-  fi	chmod +x "$DEPCHECK_HOME/bin/dependency-check.sh" "$DEPCHECK_HOME/bin/dependency-check"
-	# NOTE: do NOT symlink the launcher into $TOOLS_DIR — dependency-check.sh
-	# locates its lib/ and data/ relative to its own path (dirname $0), so a
-	# symlink would break it. findTool() finds it via DEPENDENCY_CHECK_HOME.
-	rm -rf "$tmp"
-	log "dependency-check installed at $DEPCHECK_HOME"
+  fi
+  chmod +x "$DEPCHECK_HOME/bin/dependency-check.sh" "$DEPCHECK_HOME/bin/dependency-check"
+  # NOTE: do NOT symlink the launcher into $TOOLS_DIR — dependency-check.sh
+  # locates its lib/ and data/ relative to its own path (dirname $0), so a
+  # symlink would break it. findTool() finds it via DEPENDENCY_CHECK_HOME.
+  rm -rf "$tmp"
+  log "dependency-check installed at $DEPCHECK_HOME"
 }
 
 install_python_tool() {
@@ -196,24 +197,99 @@ install_npm_tool() {
   log "$name installed"
 }
 
+install_eslint() {
+  # Debian's nodejs/npm packages ship a SYSTEM eslint (v6.4.0) that cannot
+  # resolve npm-installed plugins (eslint-plugin-security needs eslint >= 8),
+  # and the plain install_npm_tool short-circuits on that binary. Install
+  # eslint@8 + the security plugins into a self-contained prefix (/opt/eslint)
+  # that lives in the image, then symlink the v8 binary into $TOOLS_DIR so
+  # findTool() picks it up before the system one. ESLINT_PREFIX is also baked
+  # into the image so the Go runner can pass --resolve-plugins-relative-to.
+  #
+  # npm can transiently fail to reach the registry during cloud builds, so
+  # retry the install a few times before giving up.
+  local prefix="${ESLINT_PREFIX:-/opt/eslint}"
+  if [ -x "$prefix/bin/eslint" ] && "$prefix/bin/eslint" --version 2>/dev/null | grep -q '^v8'; then
+    log "eslint@8 already installed at $prefix"
+    return 0
+  fi
+  if ! command -v npm >/dev/null 2>&1; then
+    warn "npm not available, skipping eslint"
+    return 1
+  fi
+  mkdir -p "$prefix"
+  local attempt
+  for attempt in 1 2 3; do
+    log "installing eslint@8 + security plugins into $prefix (attempt $attempt/3)"
+    if npm install --prefix "$prefix" --no-audit --no-fund --silent \
+        "eslint@8" "eslint-plugin-security" "eslint-plugin-no-secrets"; then
+      break
+    fi
+    warn "npm install attempt $attempt failed; retrying..."
+    sleep 5
+  done
+  # npm install --prefix puts the bin links under <prefix>/node_modules/.bin
+  # (local-style install), not <prefix>/bin (that only happens with -g).
+  local esbin
+  esbin=""
+  for c in "$prefix/bin/eslint" "$prefix/node_modules/.bin/eslint"; do
+    if [ -x "$c" ]; then
+      esbin="$c"
+      break
+    fi
+  done
+  if [ -z "$esbin" ]; then
+    warn "eslint binary not found after install (checked $prefix/bin and $prefix/node_modules/.bin)"
+    return 1
+  fi
+  ln -sf "$esbin" "$TOOLS_DIR/eslint"
+  log "eslint symlinked into $TOOLS_DIR/eslint ($("$TOOLS_DIR/eslint" --version 2>/dev/null))"
+}
+
 detect_os_arch
 
 # --- Standalone binaries (official GitHub releases) ---
 GOSEC_VER="v2.21.4"
 GITLEAKS_VER="v8.21.2"
-TRIVY_VER="v0.56.2"
+TRIVY_VER="v0.73.0"
 
 download_tarball "gosec" \
   "https://github.com/securego/gosec/releases/download/${GOSEC_VER}/gosec_${GOSEC_VER#v}_${OS}_${ARCH}.tar.gz" \
   "gosec" || true
 
+# Gitleaks names its binaries with x64/arm64 (not amd64) since v8.16.
+GITLEAKS_ARCH="$ARCH"
+if [ "$ARCH" = "amd64" ]; then GITLEAKS_ARCH="x64"; fi
 download_tarball "gitleaks" \
-  "https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VER}/gitleaks_${GITLEAKS_VER#v}_${OS}_${ARCH}.tar.gz" \
+  "https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VER}/gitleaks_${GITLEAKS_VER#v}_${OS}_${GITLEAKS_ARCH}.tar.gz" \
   "gitleaks" || true
 
+# Trivy names its assets with capital "Linux-64bit" / "Linux-ARM64".
+case "$OS/$ARCH" in
+  linux/amd64)  TRIVY_ASSET="Linux-64bit" ;;
+  linux/arm64)  TRIVY_ASSET="Linux-ARM64" ;;
+  darwin/amd64) TRIVY_ASSET="macOS-64bit" ;;
+  darwin/arm64) TRIVY_ASSET="macOS-ARM64" ;;
+  *)            TRIVY_ASSET="Linux-64bit" ;;
+esac
 download_tarball "trivy" \
-  "https://github.com/aquasecurity/trivy/releases/download/${TRIVY_VER}/trivy_${TRIVY_VER#v}_${OS}-${ARCH}.tar.gz" \
+  "https://github.com/aquasecurity/trivy/releases/download/${TRIVY_VER}/trivy_${TRIVY_VER#v}_${TRIVY_ASSET}.tar.gz" \
   "trivy" || true
+
+# --- Pre-download the Trivy vulnerability DB at build time ---
+# The first scan on a cold serverless instance must not spend minutes
+# downloading the ~150 MB vulnerability DB (the old default GCR mirror is
+# being retired and often fails). Warming the cache into the image makes
+# runtime scans start instantly. Best-effort: if this fails the first runtime
+# scan retries the download via TRIVY_DB_REPOSITORY.
+if [ -x "$TOOLS_DIR/trivy" ] && [ "${SAST_SKIP_TRIVY_DB:-}" != "1" ]; then
+  TRIVY_CACHE_DIR="${TRIVY_CACHE_DIR:-/tmp/trivy-cache}"
+  mkdir -p "$TRIVY_CACHE_DIR"
+  log "pre-downloading trivy vulnerability DB into $TRIVY_CACHE_DIR (this can take a few minutes)"
+  "$TOOLS_DIR/trivy" --cache-dir "$TRIVY_CACHE_DIR" image --download-db-only >/dev/null 2>&1 \
+    || "$TOOLS_DIR/trivy" --cache-dir "$TRIVY_CACHE_DIR" --db-repository ghcr.io/aquasecurity/trivy-db image --download-db-only >/dev/null 2>&1 \
+    || warn "trivy DB pre-download failed; the first runtime scan will download it via TRIVY_DB_REPOSITORY"
+fi
 
 # --- Enterprise tools ---
 # CodeQL: full bundle (includes the codeql/<lang>-queries packs). Linux/glibc
@@ -238,7 +314,7 @@ install_python_tool "bandit" || true
 install_python_tool "njsscan" || true
 
 # --- Node.js-based tools ---
-install_npm_tool "eslint" "eslint@8" "eslint-plugin-security" "eslint-plugin-no-secrets" || true
+install_eslint || true
 
 log "build.sh finished. Tools installed under $TOOLS_DIR:"
 ls -1 "$TOOLS_DIR" 2>/dev/null || true

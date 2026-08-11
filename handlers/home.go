@@ -114,6 +114,9 @@ func NewHandler() http.Handler {
 	mux.HandleFunc("/how-it-works", func(w http.ResponseWriter, r *http.Request) {
 		RenderTemplate(w, r, "how-it-works", nil)
 	})
+	mux.HandleFunc("/privacy", func(w http.ResponseWriter, r *http.Request) {
+		RenderTemplate(w, r, "privacy", nil)
+	})
 	mux.HandleFunc("/upload", u.UploadPage)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		middleware.WriteJSON(w, http.StatusOK, map[string]interface{}{"status": "ok"})

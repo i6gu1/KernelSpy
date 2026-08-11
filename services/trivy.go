@@ -3,6 +3,8 @@ package services
 import (
 	"encoding/json"
 	"log"
+	"os"
+	"path/filepath"
 
 	"black-hat/models"
 )
@@ -43,16 +45,26 @@ type trivyOutput struct {
 //     bare project still gets checked for embedded secrets and misconfigs.
 func (t *TrivyRunner) Run(projectPath string, status *ToolStatusCollector) []models.DependencyVulnerability {
 	var env []string
-	if cacheDir := trivyCacheDir(); cacheDir != "" {
-		env = append(env, "TRIVY_CACHE_DIR="+cacheDir)
-	}
-
-	out, outcome := runToolEnv("", env, toolTimeout, "trivy",
-		"fs", "--format", "json", "--quiet",
+	args := []string{"fs", "--format", "json", "--quiet",
 		"--scanners", "vuln,secret,misconfig",
 		"--skip-dirs", "node_modules", "--skip-dirs", ".git",
-		"--exit-code", "0",
-		projectPath)
+		"--exit-code", "0"}
+
+	if cacheDir := trivyCacheDir(); cacheDir != "" {
+		env = append(env, "TRIVY_CACHE_DIR="+cacheDir)
+		// If the vulnerability DB was pre-downloaded into the cache at build
+		// time (see build.sh / the Docker images), use it offline instead of
+		// re-downloading on every cold start. Serverless sandboxes often have
+		// no reliable egress to the DB registry, so a cached DB is the only
+		// way trivy can run there at all.
+		if trivyDBExists(cacheDir) {
+			args = append(args, "--skip-db-update")
+		}
+	}
+
+	args = append(args, projectPath)
+
+	out, outcome := runToolEnv("", env, toolTimeout, "trivy", args...)
 	defer func() { status.Record(outcome) }()
 
 	if outcome.Status != statusSuccess || len(out) == 0 {
@@ -89,4 +101,17 @@ func (t *TrivyRunner) Run(projectPath string, status *ToolStatusCollector) []mod
 
 	outcome.Findings = len(vulns)
 	return vulns
+}
+
+// trivyDBExists reports whether a trivy vulnerability DB (and its metadata)
+// is already present in the given cache directory, meaning a runtime download
+// can be skipped.
+func trivyDBExists(cacheDir string) bool {
+	if _, err := os.Stat(filepath.Join(cacheDir, "db", "trivy.db")); err != nil {
+		return false
+	}
+	if _, err := os.Stat(filepath.Join(cacheDir, "db", "metadata.json")); err != nil {
+		return false
+	}
+	return true
 }

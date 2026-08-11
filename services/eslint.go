@@ -82,9 +82,23 @@ func (e *ESLintRunner) Run(projectPath string, status *ToolStatusCollector) ([]m
 	metrics := models.QualityMetrics{}
 
 	// Run eslint on the project, honoring the project's own config when it has
-	// one and injecting the security-plugin config otherwise.
+	// one and injecting the security-plugin config otherwise. The working
+	// directory must be the project itself: scanning an absolute path from
+	// another cwd makes eslint's internal ignore/path handling choke
+	// ("path should be a path.relative()d string").
+	//
+	// build.sh installs eslint@8 + plugins into a self-contained prefix
+	// (/opt/eslint). We pass --resolve-plugins-relative-to so the security
+	// plugins resolve from that prefix even though the project dir has no
+	// node_modules — without it a globally-installed plugin set can be
+	// invisible to eslint ("couldn't find the plugin" errors).
 	ensureESLintConfig(projectPath)
-	out, outcome := runTool("eslint", "--format", "json", "--quiet", projectPath)
+	args := []string{"--format", "json", "--quiet"}
+	if prefix := eslintPrefix(); prefix != "" {
+		args = append(args, "--resolve-plugins-relative-to", prefix)
+	}
+	args = append(args, ".")
+	out, outcome := runToolInDir(projectPath, "eslint", args...)
 	defer func() { status.Record(outcome) }()
 
 	if outcome.Status != statusSuccess || len(out) == 0 {
@@ -141,6 +155,47 @@ func (e *ESLintRunner) Run(projectPath string, status *ToolStatusCollector) ([]m
 
 	outcome.Findings = len(security) + len(quality)
 	return security, quality, metrics
+}
+
+// eslintPrefix returns the prefix directory that holds the global eslint
+// install (and its plugins): the ESLINT_PREFIX env var when set, otherwise the
+// prefix derived from the resolved eslint binary (e.g. /opt/bin/eslint ->
+// /opt/eslint/bin/eslint -> /opt/eslint). The empty string means no dedicated
+// prefix was found; eslint then falls back to resolving plugins relative to
+// the project dir, which works when the project ships its own plugins.
+func eslintPrefix() string {
+	// The ESLINT_PREFIX env var is the authoritative source when set (build.sh
+	// bakes it into the image). It must contain node_modules/eslint to be
+	// usable as a --resolve-plugins-relative-to base.
+	if p := os.Getenv("ESLINT_PREFIX"); p != "" {
+		if _, err := os.Stat(filepath.Join(p, "node_modules", "eslint")); err == nil {
+			return p
+		}
+	}
+
+	// Fall back to deriving the prefix from the resolved eslint binary. npm
+	// install --prefix puts eslint at <prefix>/node_modules/eslint/bin/eslint.js
+	// (and a .bin/eslint symlink), so follow symlinks then walk up until we
+	// find the directory that contains node_modules/eslint.
+	bin := findTool("eslint")
+	if bin == "" {
+		return ""
+	}
+	if real, err := filepath.EvalSymlinks(bin); err == nil {
+		bin = real
+	}
+	dir := filepath.Dir(bin)
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "node_modules", "eslint")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return ""
 }
 
 // isSecurityRule reports whether an ESLint rule id belongs to a security

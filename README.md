@@ -86,7 +86,7 @@ REDIS_URL=localhost:6379
 MAX_UPLOAD_SIZE=52428800
 SAST_TOOLS_DIR=/opt/bin
 ANALYSIS_TIMEOUT=600
-MAX_CONCURRENT_ANALYSES=5
+MAX_CONCURRENT_ANALYSES=100            # order queue: up to 100 scans run at once; the 101st upload is told to wait
 
 # Scanner tuning (fail-safe):
 CODQL_HOME=/opt/codeql                  # CodeQL install root (binary at $CODQL_HOME/codeql)

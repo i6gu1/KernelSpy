@@ -67,7 +67,7 @@ func (d *DependencyCheckRunner) Run(projectPath string, status *ToolStatusCollec
 			status.Record(&ToolOutcome{
 				Tool:   "dependency-check",
 				Status: statusMissing,
-				Error:  "dependency-check is not installed (set DEPENDENCY_CHECK_HOME or install via build.sh)",
+				Error:  "dependency-check is not available in this deployment (serverless containers skip the JVM/NVD download; the full Docker image installs it via build.sh)",
 			})
 			return nil
 		}

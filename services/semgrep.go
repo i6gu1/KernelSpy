@@ -46,9 +46,13 @@ type semgrepOutput struct {
 //   - semgrep exits 1 when findings exist; runToolEnv classifies "exit != 0
 //     with output" as success, so findings are parsed normally.
 func (s *SemgrepRunner) Run(projectPath string, status *ToolStatusCollector) []models.SecurityFinding {
+	// Default to the p/security-audit ruleset: it is the high-signal security
+	// pack and, unlike --config=auto, it works with metrics disabled (auto
+	// refuses to run when SEMGREP_SEND_METRICS=off/--metrics=off).
+	// Point SEMGREP_CONFIG at a local rules directory for fully-offline runs.
 	config := os.Getenv("SEMGREP_CONFIG")
 	if config == "" {
-		config = "auto"
+		config = "p/security-audit"
 	}
 
 	out, outcome := runToolEnv("", []string{"SEMGREP_SEND_METRICS=off"}, toolTimeout, "semgrep",

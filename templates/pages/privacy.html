@@ -1,0 +1,49 @@
+{{template "base.html" .}}
+
+{{define "content"}}
+<section class="section page-hero">
+    <div class="container">
+        <div class="page-hero-inner animate-fade-in-up">
+            <h1 class="section-title" data-i18n="privacy.title">Privacy Policy</h1>
+            <p class="page-hero-description" data-i18n="privacy.subtitle">Your project is safe with us. We do not store any information about you or your projects.</p>
+        </div>
+    </div>
+</section>
+
+<section class="section">
+    <div class="container">
+        <div class="card privacy-card animate-fade-in-up">
+            <div class="privacy-content">
+                <p class="privacy-updated" data-i18n="privacy.updated">Last updated: August 2026</p>
+
+                <h2 data-i18n="privacy.section1.title">1. Introduction</h2>
+                <p data-i18n="privacy.section1.body">Black Hat is a code analysis platform. This Privacy Policy explains what happens to the files you upload and the information generated during an analysis. By using our service you agree to the practices described below.</p>
+
+                <h2 data-i18n="privacy.section2.title">2. We Do Not Collect Personal Information</h2>
+                <p data-i18n="privacy.section2.body">We do not require an account, an email address, or any personal data to use the service. We do not collect your name, your IP address for profiling, or any browser fingerprint. We have no database of users.</p>
+
+                <h2 data-i18n="privacy.section3.title">3. Your Project Is Processed, Never Stored</h2>
+                <p data-i18n="privacy.section3.body">Your uploaded ZIP archive is extracted into a temporary, private workspace on the server, analyzed by static analysis tools, and then permanently deleted immediately after the analysis completes. We do not store, copy, publish, or retain your source code or any file from your project after the scan finishes.</p>
+
+                <h2 data-i18n="privacy.section4.title">4. Analysis Results Are Temporary</h2>
+                <p data-i18n="privacy.section4.body">The report generated for your project is held in memory only for as long as you are viewing it. Reports are not written to a database, are not indexed, and cannot be discovered or accessed by other users. Once the server restarts or the temporary workspace is cleared, the results are gone.</p>
+
+                <h2 data-i18n="privacy.section5.title">5. Automated Analysis Only</h2>
+                <p data-i18n="privacy.section5.body">Analysis is performed entirely by automated static-analysis tools running on our infrastructure. No human reviews your code, no artificial-intelligence model is trained on your project, and your code is never shared with third parties.</p>
+
+                <h2 data-i18n="privacy.section6.title">6. What Is Processed and Why</h2>
+                <p data-i18n="privacy.section6.body">The only data processed is the content of the archive you voluntarily upload, for the sole purpose of detecting security vulnerabilities, code-quality issues, and dependency risks. We process the minimum necessary to produce your report and nothing more.</p>
+
+                <h2 data-i18n="privacy.section7.title">7. Children's Privacy</h2>
+                <p data-i18n="privacy.section7.body">Our service is not directed to children under the age of 13, and we do not knowingly process or store any information from children.</p>
+
+                <h2 data-i18n="privacy.section8.title">8. Changes to This Policy</h2>
+                <p data-i18n="privacy.section8.body">We may update this Privacy Policy from time to time. Any changes will be posted on this page with a new "last updated" date. Continued use of the service after changes constitutes acceptance of the updated policy.</p>
+
+                <h2 data-i18n="privacy.section9.title">9. Contact</h2>
+                <p data-i18n="privacy.section9.body">If you have any questions about this Privacy Policy or how your data is handled, contact us at <a href="mailto:nvapps@proton.me" class="privacy-link">nvapps@proton.me</a>.</p>
+            </div>
+        </div>
+    </div>
+</section>
+{{end}}

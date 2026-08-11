@@ -1,8 +1,16 @@
-# Vercel Docker image: same as Dockerfile but documented for the container
-# deployment path. The primary Vercel deployment uses the serverless Go
-# function in api/handler.go (see vercel.json); this image is the alternative
-# when a long-running container is preferred and full SAST tools are needed.
+# Vercel Container Images deployment (beta): a Debian-based image with the SAST
+# toolchain installed by build.sh. Vercel detects this file at the repo root
+# and routes all traffic to the container, so Semgrep, Gitleaks, Trivy, Bandit,
+# NjsScan, ESLint, Gosec and the built-in analyzer all actually run — unlike
+# the plain serverless Go preset, where no tool binaries can exist.
+#
+# CodeQL and OWASP Dependency-Check are intentionally disabled here
+# (SAST_SKIP_CODQL=1 / SAST_SKIP_DEPCHECK=1): CodeQL's ~1.5 GB bundle plus
+# per-language database builds, and Dependency-Check's JVM + multi-hundred-MB
+# NVD feed download, cannot fit a serverless request window or image budget.
+# They run in the full Docker image (Dockerfile) on a container host.
 
+# ---- Build stage ----
 FROM golang:1.22-alpine AS builder
 
 WORKDIR /app
@@ -16,20 +24,41 @@ COPY . .
 
 RUN CGO_ENABLED=0 GOOS=linux go build -o black-hat ./cmd/api
 
-FROM alpine:latest
+# ---- Runtime stage ----
+FROM debian:bookworm-slim
 
-RUN apk --no-cache add ca-certificates curl tar git bash \
-    python3 py3-pip nodejs npm
+# Runtime deps for the pip/npm SAST tools. No JVM needed (Dependency-Check skipped).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl tar unzip git bash \
+    python3 python3-pip nodejs npm \
+ && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /root/
 
+# Install the SAST tools (best-effort; failures surface as "missing" in the
+# report's Scanner Status instead of masquerading as a clean scan).
+#
+# TRIVY_CACHE_DIR deliberately points at /opt (part of the image), NOT /tmp:
+# Vercel container functions mount a fresh, empty /tmp at runtime, so a
+# vulnerability DB baked into /tmp at build time would be wiped and trivy
+# would try (and fail) to re-download it on the first request. /opt/trivy-cache
+# survives in the image layers, so the pre-downloaded DB is used offline.
 COPY build.sh /build.sh
+ENV SAST_SKIP_CODQL=1 \
+    SAST_SKIP_DEPCHECK=1 \
+    SAST_TOOLS_DIR=/opt/bin \
+    ESLINT_PREFIX=/opt/eslint \
+    TRIVY_CACHE_DIR=/opt/trivy-cache \
+    TRIVY_DB_REPOSITORY=ghcr.io/aquasecurity/trivy-db \
+    PORT=80
 RUN bash /build.sh || true
 
 COPY --from=builder /app/black-hat .
 
-ENV PORT=80
-
+# Container functions open an HTTP server on port 80 by default.
 EXPOSE 80
+
+# The order queue allows 100 concurrent analyses by default.
+ENV MAX_CONCURRENT_ANALYSES=100
 
 CMD ["./black-hat"]

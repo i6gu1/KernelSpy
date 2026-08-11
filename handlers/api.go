@@ -6,11 +6,13 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"black-hat/i18n"
 	"black-hat/middleware"
 	"black-hat/models"
 	"black-hat/services"
@@ -25,7 +27,45 @@ var (
 	// instead of reporting every unknown id as "running" forever.
 	pending    = make(map[int]struct{})
 	analysisID atomic.Int32
+
+	// orderSlots is the order/queue system: the site handles up to 100 orders
+	// (uploads) at once. Each upload must reserve a slot before its analysis
+	// starts; when all 100 slots are busy, the 101st upload is told to wait
+	// until the current scans finish. As soon as one finishes, its slot is
+	// freed and the next upload (order 101) takes its place. The capacity is
+	// configurable via MAX_CONCURRENT_ANALYSES.
+	orderSlots = make(chan struct{}, maxConcurrentOrders())
 )
+
+// maxConcurrentOrders returns how many analyses may run at the same time
+// (the order limit). Defaults to 100; override with MAX_CONCURRENT_ANALYSES.
+func maxConcurrentOrders() int {
+	n := 100
+	if v := os.Getenv("MAX_CONCURRENT_ANALYSES"); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
+			n = parsed
+		}
+	}
+	return n
+}
+
+// reserveOrderSlot tries to take one of the 100 order slots. It returns true
+// when a slot was reserved (the upload may proceed) and false when the queue
+// is full (the 101st concurrent upload must wait).
+func reserveOrderSlot() bool {
+	select {
+	case orderSlots <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
+// releaseOrderSlot frees an order slot after an analysis finishes, letting
+// the next waiting upload (order 101) take the place of the finished one.
+func releaseOrderSlot() {
+	<-orderSlots
+}
 
 const (
 	// maxUploadMem is how much of an uploaded multipart body is kept in RAM
@@ -132,6 +172,27 @@ func (u *UploadHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	projectID := int(analysisID.Add(1))
+
+	// ---- Order queue: up to 100 analyses run at once ----
+	// If all 100 slots are taken, the 101st upload is told to wait until one
+	// of the running scans finishes; the finished scan's slot then goes to
+	// the next upload. This happens *before* reserving the analysis ID and
+	// before any temp files are written, so a rejected order costs nothing.
+	if !reserveOrderSlot() {
+		os.Remove(savePath)
+		os.RemoveAll(projectDir)
+		lang := middleware.LangFrom(r)
+		msg := i18n.GetInstance().Translate(lang, "errors.queueFull")
+		w.Header().Set("Retry-After", "60")
+		middleware.WriteJSON(w, http.StatusTooManyRequests, map[string]interface{}{
+			"error":               msg,
+			"queue_full":          true,
+			"max_orders":          maxConcurrentOrders(),
+			"retry_after_seconds": 60,
+		})
+		return
+	}
+	defer releaseOrderSlot()
 
 	// Run the analysis synchronously *inside* this request. On Vercel's
 	// serverless Go runtime a background goroutine started after the response
