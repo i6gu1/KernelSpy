@@ -16,9 +16,7 @@
             <div class="results-actions">
                 <a href="/reports/{{.AnalysisID}}" class="btn-primary" data-i18n="reports.title">Download Report</a>
             </div>
-        </div>
-
-        {{if .Result.Summary}}
+        </div>        {{if .Result.Summary}}
         <div class="results-section animate-fade-in-up">
             <h2 class="section-subtitle" data-i18n="dashboard.summary">Security Report</h2>
             <div class="ai-summary card">
@@ -26,7 +24,38 @@
             </div>
         </div>
         {{end}}
-
+        
+        {{if .Result.ToolStatuses}}
+        <div class="results-section animate-fade-in-up">
+            <h2 class="section-subtitle">Scanner Status</h2>
+            <p class="section-description">Shows exactly which scanners ran, and which could not (so a missing tool can never masquerade as a clean scan).</p>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Tool</th>
+                            <th>Status</th>
+                            <th>Findings</th>
+                            <th>Duration</th>
+                            <th>Error</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .Result.ToolStatuses}}
+                        <tr>
+                            <td><code>{{.Tool}}</code></td>
+                            <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>
+                            <td>{{.Findings}}</td>
+                            <td>{{printf "%.1f" .DurationSeconds}}s</td>
+                            <td class="scanner-error">{{.Error}}</td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {{end}}
+        
         {{if .Result.Suggestions}}
         <div class="results-section animate-fade-in-up">
             <h2 class="section-subtitle" data-i18n="dashboard.suggestions">Improvement Suggestions</h2>

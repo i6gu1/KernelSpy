@@ -29,15 +29,19 @@ type banditOutput struct {
 	} `json:"results"`
 }
 
-func (b *BanditRunner) Run(projectPath string) []models.SecurityFinding {
-	out, ok := runTool("bandit", "-r", projectPath, "-f", "json", "-q")
-	if !ok || len(out) == 0 {
+func (b *BanditRunner) Run(projectPath string, status *ToolStatusCollector) []models.SecurityFinding {
+	out, outcome := runTool("bandit", "-r", projectPath, "-f", "json", "-q")
+	defer func() { status.Record(outcome) }()
+
+	if outcome.Status != statusSuccess || len(out) == 0 {
 		return nil
 	}
 
 	var parsed banditOutput
 	if err := json.Unmarshal(out, &parsed); err != nil {
-		log.Printf("[bandit] failed to parse output: %v", err)
+		outcome.Status = statusError
+		outcome.Error = "failed to parse bandit output: " + truncate(string(out), 300)
+		log.Printf("[bandit] %s", outcome.Error)
 		return nil
 	}
 
@@ -61,5 +65,6 @@ func (b *BanditRunner) Run(projectPath string) []models.SecurityFinding {
 		})
 	}
 
+	outcome.Findings = len(findings)
 	return findings
 }

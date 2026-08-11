@@ -32,7 +32,7 @@
     "upload.dragDrop": "Перетащите архив ZIP сюда",
     "upload.or": "или",
     "upload.chooseFile": "Выберите файл",
-    "upload.maxSize": "Максимальный размер: 50 МБ",
+    "upload.maxSize": "Без ограничения размера",
     "upload.supportedFormat": "Поддерживаемый формат: ZIP",
     "analysis.title": "Анализ проекта",
     "analysis.preparing": "Подготовка...",

@@ -94,11 +94,24 @@ type FileEntry struct {
 	Lines int    `json:"lines"`
 }
 
+// ToolStatus records the outcome of a single scanner invocation. This is the
+// fail-safe: a scanner that could not run (not installed, timed out, crashed)
+// is surfaced in the report instead of silently producing "no findings", which
+// would be a false negative.
+type ToolStatus struct {
+	Tool            string  `json:"tool"`
+	Status          string  `json:"status"` // success | missing | timeout | error
+	Error           string  `json:"error,omitempty"`
+	DurationSeconds float64 `json:"duration_seconds"`
+	Findings        int     `json:"findings"`
+}
+
 type AnalysisResult struct {
 	SecurityFindings   []SecurityFinding         `json:"security_findings"`
 	QualityFindings    []QualityFinding          `json:"quality_findings"`
 	QualityMetrics     QualityMetrics            `json:"quality_metrics"`
 	DependencyVulns    []DependencyVulnerability `json:"dependency_vulns"`
+	ToolStatuses       []ToolStatus              `json:"tool_statuses"`
 	ProjectInfo        ProjectInfo               `json:"project_info"`
 	FilesScanned       int                       `json:"files_scanned"`
 	DurationSeconds    int                       `json:"duration_seconds"`

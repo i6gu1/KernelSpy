@@ -76,7 +76,7 @@ func ensureESLintConfig(projectPath string) {
 	os.WriteFile(filepath.Join(projectPath, ".eslintrc.json"), []byte(defaultESLintConfig), 0o644)
 }
 
-func (e *ESLintRunner) Run(projectPath string) ([]models.SecurityFinding, []models.QualityFinding, models.QualityMetrics) {
+func (e *ESLintRunner) Run(projectPath string, status *ToolStatusCollector) ([]models.SecurityFinding, []models.QualityFinding, models.QualityMetrics) {
 	var security []models.SecurityFinding
 	var quality []models.QualityFinding
 	metrics := models.QualityMetrics{}
@@ -84,14 +84,18 @@ func (e *ESLintRunner) Run(projectPath string) ([]models.SecurityFinding, []mode
 	// Run eslint on the project, honoring the project's own config when it has
 	// one and injecting the security-plugin config otherwise.
 	ensureESLintConfig(projectPath)
-	out, ok := runTool("eslint", "--format", "json", "--quiet", projectPath)
-	if !ok || len(out) == 0 {
+	out, outcome := runTool("eslint", "--format", "json", "--quiet", projectPath)
+	defer func() { status.Record(outcome) }()
+
+	if outcome.Status != statusSuccess || len(out) == 0 {
 		return security, quality, metrics
 	}
 
 	var files []eslintFile
 	if err := json.Unmarshal(out, &files); err != nil {
-		log.Printf("[eslint] failed to parse output: %v", err)
+		outcome.Status = statusError
+		outcome.Error = "failed to parse eslint output: " + truncate(string(out), 300)
+		log.Printf("[eslint] %s", outcome.Error)
 		return security, quality, metrics
 	}
 
@@ -135,6 +139,7 @@ func (e *ESLintRunner) Run(projectPath string) ([]models.SecurityFinding, []mode
 		}
 	}
 
+	outcome.Findings = len(security) + len(quality)
 	return security, quality, metrics
 }
 

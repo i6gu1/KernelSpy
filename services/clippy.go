@@ -12,14 +12,14 @@ func NewClippyRunner() *ClippyRunner {
 	return &ClippyRunner{}
 }
 
-func (c *ClippyRunner) Run(projectPath string) ([]models.QualityFinding, models.QualityMetrics) {
+func (c *ClippyRunner) Run(projectPath string, status *ToolStatusCollector) ([]models.QualityFinding, models.QualityMetrics) {
 	var findings []models.QualityFinding
 	var metrics models.QualityMetrics
 
-	cmd := exec.Command("cargo", "clippy", "--message-format=json", "--quiet")
-	cmd.Dir = projectPath
-	output, err := cmd.CombinedOutput()
-	if err != nil {
+	output, outcome := runToolInDir(projectPath, "cargo", "clippy", "--message-format=json", "--quiet")
+	defer func() { status.Record(outcome) }()
+
+	if outcome.Status != statusSuccess {
 		return c.generateDefaultFindings(projectPath)
 	}
 
@@ -41,6 +41,7 @@ func (c *ClippyRunner) Run(projectPath string) ([]models.QualityFinding, models.
 		}
 	}
 
+	outcome.Findings = len(findings)
 	return findings, metrics
 }
 

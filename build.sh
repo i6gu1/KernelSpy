@@ -8,15 +8,18 @@
 # /opt/bin first, then PATH.
 #
 # Every step is best-effort: a failure to fetch one tool logs a warning and the
-# build continues. The pipeline gracefully reports "no findings" for any tool
-# that is not installed.
+# build continues. The pipeline now RECORDS a per-tool status in the report, so
+# a tool that failed to install shows up as "missing" instead of silently
+# producing a false "clean" report.
 #
 # Usage:  SAST_TOOLS_DIR=/opt/bin bash build.sh
 # =============================================================================
 set -u
 
 TOOLS_DIR="${SAST_TOOLS_DIR:-/opt/bin}"
-mkdir -p "$TOOLS_DIR"
+CODQL_HOME="${CODQL_HOME:-/opt/codeql}"
+DEPCHECK_HOME="${DEPENDENCY_CHECK_HOME:-/opt/dependency-check}"
+mkdir -p "$TOOLS_DIR" "$CODQL_HOME" "$DEPCHECK_HOME"
 
 log()  { echo "[build.sh] $*"; }
 warn() { echo "[build.sh] WARN: $*"; }
@@ -70,6 +73,95 @@ download_tarball() {
   log "$name installed at $TOOLS_DIR/$bin"
 }
 
+install_codeql() {
+  # CodeQL must be extracted as a whole tree (binary + extractors + query
+  # packs), so it gets its own function. The full bundle is ~1.5 GB.
+  if [ -x "$CODQL_HOME/codeql/codeql" ]; then
+    log "codeql already installed at $CODQL_HOME"
+    return 0
+  fi
+  local url="https://github.com/github/codeql-action/releases/download/codeql-bundle-v2.20.0/codeql-bundle-linux64.tar.gz"
+  if [ "${CODQL_BUNDLE_URL:-}" != "" ]; then
+    url="$CODQL_BUNDLE_URL"
+  fi
+  log "downloading codeql bundle from $url (large download, this can take a while)"
+  local tmp
+  tmp="$(mktemp -d)"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL -o "$tmp/codeql.tgz" "$url" || { warn "failed to download codeql bundle"; rm -rf "$tmp"; return 1; }
+  elif command -v wget >/dev/null 2>&1; then
+    wget -q -O "$tmp/codeql.tgz" "$url" || { warn "failed to download codeql bundle"; rm -rf "$tmp"; return 1; }
+  else
+    warn "no curl/wget available, skipping codeql"
+    rm -rf "$tmp"
+    return 1
+  fi
+  tar -xzf "$tmp/codeql.tgz" -C "$tmp" || { warn "failed to unpack codeql bundle"; rm -rf "$tmp"; return 1; }
+  local found
+  found="$(find "$tmp" -type f -path '*/codeql/codeql' -perm -u+x | head -n1)"
+  if [ -z "$found" ]; then
+    warn "codeql binary not found inside bundle"
+    rm -rf "$tmp"
+    return 1
+  fi
+  rm -rf "$CODQL_HOME"/*
+  tar -xzf "$tmp/codeql.tgz" -C "$CODQL_HOME" --strip-components=1 || { warn "failed to install codeql tree"; rm -rf "$tmp"; return 1; }
+  rm -rf "$tmp"
+  log "codeql installed at $CODQL_HOME (binary: $CODQL_HOME/codeql/codeql)"
+}
+
+install_depcheck() {
+  # OWASP Dependency-Check: a Java application distributed as a zip. Keep the
+  # whole tree so its launcher finds its lib/ and data/ dirs, and symlink the
+  # launcher into TOOLS_DIR so findTool() picks it up from the PATH too.
+  if [ -x "$DEPCHECK_HOME/bin/dependency-check.sh" ]; then
+    log "dependency-check already installed at $DEPCHECK_HOME"
+    return 0
+  fi
+  local ver="9.2.1"
+  if [ "${DEPCHECK_VERSION:-}" != "" ]; then
+    ver="$DEPCHECK_VERSION"
+  fi
+  local url="https://github.com/dependency-check/DependencyCheck/releases/download/v${ver}/dependency-check-${ver}-release.zip"
+  log "downloading dependency-check v${ver} from $url"
+  local tmp
+  tmp="$(mktemp -d)"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL -o "$tmp/dc.zip" "$url" || { warn "failed to download dependency-check"; rm -rf "$tmp"; return 1; }
+  elif command -v wget >/dev/null 2>&1; then
+    wget -q -O "$tmp/dc.zip" "$url" || { warn "failed to download dependency-check"; rm -rf "$tmp"; return 1; }
+  else
+    warn "no curl/wget available, skipping dependency-check"
+    rm -rf "$tmp"
+    return 1
+  fi
+  if ! command -v unzip >/dev/null 2>&1; then
+    warn "unzip not available, skipping dependency-check"
+    rm -rf "$tmp"
+    return 1
+  fi
+  unzip -q "$tmp/dc.zip" -d "$tmp" || { warn "failed to unpack dependency-check"; rm -rf "$tmp"; return 1; }
+  local found
+  found="$(find "$tmp" -type f -name dependency-check.sh | head -n1)"
+  if [ -z "$found" ]; then
+    warn "dependency-check.sh not found inside archive"
+    rm -rf "$tmp"
+    return 1
+  fi
+  rm -rf "$DEPCHECK_HOME"/*
+  unzip -q "$tmp/dc.zip" -d "$(dirname "$DEPCHECK_HOME")"
+  # The zip contains a top-level dir like dependency-check-9.2.1/; normalize it.
+  if [ -d "$(dirname "$DEPCHECK_HOME")/dependency-check-$ver" ] && [ "$DEPCHECK_HOME" != "$(dirname "$DEPCHECK_HOME")/dependency-check-$ver" ]; then
+    rm -rf "$DEPCHECK_HOME"
+    mv "$(dirname "$DEPCHECK_HOME")/dependency-check-$ver" "$DEPCHECK_HOME"
+  fi	chmod +x "$DEPCHECK_HOME/bin/dependency-check.sh" "$DEPCHECK_HOME/bin/dependency-check"
+	# NOTE: do NOT symlink the launcher into $TOOLS_DIR — dependency-check.sh
+	# locates its lib/ and data/ relative to its own path (dirname $0), so a
+	# symlink would break it. findTool() finds it via DEPENDENCY_CHECK_HOME.
+	rm -rf "$tmp"
+	log "dependency-check installed at $DEPCHECK_HOME"
+}
+
 install_python_tool() {
   # install_python_tool <name>
   local name="$1"
@@ -115,19 +207,30 @@ download_tarball "gosec" \
   "https://github.com/securego/gosec/releases/download/${GOSEC_VER}/gosec_${GOSEC_VER#v}_${OS}_${ARCH}.tar.gz" \
   "gosec" || true
 
-if [ "$OS" = "linux" ]; then
-  download_tarball "gitleaks" \
-    "https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VER}/gitleaks_${GITLEAKS_VER#v}_linux_${ARCH}.tar.gz" \
-    "gitleaks" || true
-else
-  download_tarball "gitleaks" \
-    "https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VER}/gitleaks_${GITLEAKS_VER#v}_${OS}_${ARCH}.tar.gz" \
-    "gitleaks" || true
-fi
+download_tarball "gitleaks" \
+  "https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VER}/gitleaks_${GITLEAKS_VER#v}_${OS}_${ARCH}.tar.gz" \
+  "gitleaks" || true
 
 download_tarball "trivy" \
   "https://github.com/aquasecurity/trivy/releases/download/${TRIVY_VER}/trivy_${TRIVY_VER#v}_${OS}-${ARCH}.tar.gz" \
   "trivy" || true
+
+# --- Enterprise tools ---
+# CodeQL: full bundle (includes the codeql/<lang>-queries packs). Linux/glibc
+# only — the Docker image must be glibc-based (debian), not alpine.
+if [ "$OS" = "linux" ] && [ "${SAST_SKIP_CODQL:-}" != "1" ]; then
+  install_codeql || true
+else
+  warn "skipping codeql (non-linux host or SAST_SKIP_CODQL=1)"
+fi
+
+# OWASP Dependency-Check: needs a JVM at runtime (openjdk-17-jre-headless in
+# the Docker image).
+if [ "${SAST_SKIP_DEPCHECK:-}" != "1" ]; then
+  install_depcheck || true
+else
+  warn "skipping dependency-check (SAST_SKIP_DEPCHECK=1)"
+fi
 
 # --- Python-based tools ---
 install_python_tool "semgrep" || true
@@ -139,3 +242,4 @@ install_npm_tool "eslint" "eslint@8" "eslint-plugin-security" "eslint-plugin-no-
 
 log "build.sh finished. Tools installed under $TOOLS_DIR:"
 ls -1 "$TOOLS_DIR" 2>/dev/null || true
+log "CodeQL under $CODQL_HOME, Dependency-Check under $DEPCHECK_HOME"

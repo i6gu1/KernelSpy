@@ -30,15 +30,19 @@ type njsscanOutput struct {
 	} `json:"nodes"`
 }
 
-func (n *NjsScanRunner) Run(projectPath string) []models.SecurityFinding {
-	out, ok := runTool("njsscan", "--json", projectPath)
-	if !ok || len(out) == 0 {
+func (n *NjsScanRunner) Run(projectPath string, status *ToolStatusCollector) []models.SecurityFinding {
+	out, outcome := runTool("njsscan", "--json", projectPath)
+	defer func() { status.Record(outcome) }()
+
+	if outcome.Status != statusSuccess || len(out) == 0 {
 		return nil
 	}
 
 	var parsed njsscanOutput
 	if err := json.Unmarshal(out, &parsed); err != nil {
-		log.Printf("[njsscan] failed to parse output: %v", err)
+		outcome.Status = statusError
+		outcome.Error = "failed to parse njsscan output: " + truncate(string(out), 300)
+		log.Printf("[njsscan] %s", outcome.Error)
 		return nil
 	}
 
@@ -66,5 +70,6 @@ func (n *NjsScanRunner) Run(projectPath string) []models.SecurityFinding {
 		})
 	}
 
+	outcome.Findings = len(findings)
 	return findings
 }

@@ -32,7 +32,7 @@
     "upload.dragDrop": "اسحب وأفلت أرشيف ZIP هنا",
     "upload.or": "أو",
     "upload.chooseFile": "اختر ملف",
-    "upload.maxSize": "الحد الأقصى لحجم الرفع: 50 ميجابايت",
+    "upload.maxSize": "الرفع بدون حد للحجم",
     "upload.supportedFormat": "صيغة الأرشيف المدعومة: ZIP",
     "analysis.title": "تحليل المشروع",
     "analysis.preparing": "جاري التحضير...",

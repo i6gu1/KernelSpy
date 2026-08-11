@@ -14,8 +14,6 @@ import (
 	"black-hat/middleware"
 )
 
-var rateLimiter = middleware.NewScanRateLimiter()
-
 // templates holds one compiled template set per page. Every page file
 // defines its own {{"content"}} block, so pages must NOT be parsed into a
 // single shared set: Go's html/template lets the last-parsed definition of
@@ -125,7 +123,7 @@ func NewHandler() http.Handler {
 	mux.Handle("/results/", http.HandlerFunc(d.ResultsPage))
 	mux.Handle("/reports/", http.HandlerFunc(r.ReportsPage))
 
-	mux.Handle("/api/upload", rateLimiter.Limit(http.HandlerFunc(u.Upload)))
+	mux.Handle("/api/upload", http.HandlerFunc(u.Upload))
 	mux.Handle("/api/analysis/status/", http.HandlerFunc(api.AnalysisStatus))
 	mux.Handle("/api/results/security/", http.HandlerFunc(api.SecurityResults))
 	mux.Handle("/api/results/quality/", http.HandlerFunc(api.QualityResults))

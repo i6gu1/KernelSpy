@@ -9,11 +9,22 @@ services:
       - DATABASE_URL=postgres://blackhat:blackhat@db:5432/blackhat?sslmode=disable
       - REDIS_URL=redis:6379
       - PORT=3000
+      # SAST pipeline tuning (see README):
+      - SAST_TOOLS_DIR=/opt/bin
+      - CODQL_HOME=/opt/codeql
+      - DEPENDENCY_CHECK_HOME=/opt/dependency-check
+      - TRIVY_CACHE_DIR=/opt/trivy-cache
+      - SAST_TOOL_TIMEOUT_SECONDS=300
+      - CODQL_TIMEOUT_SECONDS=600
+      - DEPCHECK_TIMEOUT_SECONDS=600
     depends_on:
       - db
       - redis
     volumes:
       - ./uploads:/app/uploads
+      # Persist the vulnerability feeds so first-run downloads don't repeat:
+      - trivy_cache:/opt/trivy-cache
+      - depcheck_data:/opt/dependency-check/data
 
   db:
     image: postgres:15-alpine
@@ -33,3 +44,5 @@ services:
 
 volumes:
   postgres_data:
+  trivy_cache:
+  depcheck_data:

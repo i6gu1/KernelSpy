@@ -30,17 +30,21 @@ type gosecOutput struct {
 	} `json:"Issues"`
 }
 
-func (g *GosecRunner) Run(projectPath string) []models.SecurityFinding {
+func (g *GosecRunner) Run(projectPath string, status *ToolStatusCollector) []models.SecurityFinding {
 	// Gosec must run inside a Go module. If the project has no go.mod there is
-	// nothing to scan; skip quietly.
-	out, ok := runToolInDir(projectPath, "gosec", "-fmt", "json", "-quiet", "./...")
-	if !ok || len(out) == 0 {
+	// nothing to scan; the run errors and that is recorded, not hidden.
+	out, outcome := runToolInDir(projectPath, "gosec", "-fmt", "json", "-quiet", "./...")
+	defer func() { status.Record(outcome) }()
+
+	if outcome.Status != statusSuccess || len(out) == 0 {
 		return nil
 	}
 
 	var parsed gosecOutput
 	if err := json.Unmarshal(out, &parsed); err != nil {
-		log.Printf("[gosec] failed to parse output: %v", err)
+		outcome.Status = statusError
+		outcome.Error = "failed to parse gosec output: " + truncate(string(out), 300)
+		log.Printf("[gosec] %s", outcome.Error)
 		return nil
 	}
 
@@ -65,5 +69,6 @@ func (g *GosecRunner) Run(projectPath string) []models.SecurityFinding {
 		})
 	}
 
+	outcome.Findings = len(findings)
 	return findings
 }

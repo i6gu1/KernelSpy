@@ -32,7 +32,7 @@
     "upload.dragDrop": "Glissez et déposez votre archive ZIP ici",
     "upload.or": "ou",
     "upload.chooseFile": "Choisir un fichier",
-    "upload.maxSize": "Taille maximale: 50 Mo",
+    "upload.maxSize": "Taille illimitée",
     "upload.supportedFormat": "Format supporté: ZIP",
     "analysis.title": "Analyse du projet",
     "analysis.preparing": "Préparation...",

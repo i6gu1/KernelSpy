@@ -57,6 +57,13 @@ func (r *Reporter) GenerateHTML(result *models.AnalysisResult, lang string) stri
 	sb.WriteString(fmt.Sprintf("<div class=\"stat\"><div class=\"stat-value\">%d</div><div class=\"stat-label\">Dependency Vulnerabilities</div></div>\n", len(result.DependencyVulns)))
 	sb.WriteString("</div>\n")
 
+	// Fail-safe banner: when scanners could not run, say so loudly instead of
+	// presenting a clean report.
+	if degraded := degradedScanners(result.ToolStatuses); len(degraded) > 0 {
+		sb.WriteString("<div style=\"background:#3a1a00;border:1px solid #ff6600;color:#ffcc99;padding:16px 20px;border-radius:8px;margin:20px 0;\">")
+		sb.WriteString("<strong>⚠ Incomplete scan:</strong> " + escapeHTML(strings.Join(degraded, ", ")) + " could not run. Results may be missing findings.</div>\n")
+	}
+
 	if len(result.SecurityFindings) > 0 {
 		sb.WriteString("<h2>Security Findings</h2>\n")
 		sb.WriteString("<table><thead><tr><th>Rule</th><th>File</th><th>Line</th><th>Severity</th><th>Description</th></tr></thead><tbody>\n")
@@ -112,6 +119,21 @@ func (r *Reporter) GenerateHTML(result *models.AnalysisResult, lang string) stri
 		sb.WriteString("</tbody></table>\n")
 	}
 
+	if len(result.ToolStatuses) > 0 {
+		sb.WriteString("<h2>Scanner Status</h2>\n")
+		sb.WriteString("<table><thead><tr><th>Tool</th><th>Status</th><th>Findings</th><th>Duration</th><th>Error</th></tr></thead><tbody>\n")
+		for _, st := range result.ToolStatuses {
+			sb.WriteString("<tr>")
+			sb.WriteString("<td>" + escapeHTML(st.Tool) + "</td>")
+			sb.WriteString("<td><span class=\"badge badge-" + st.Status + "\">" + strings.Title(st.Status) + "</span></td>")
+			sb.WriteString("<td>" + fmt.Sprintf("%d", st.Findings) + "</td>")
+			sb.WriteString("<td>" + fmt.Sprintf("%.1fs", st.DurationSeconds) + "</td>")
+			sb.WriteString("<td>" + escapeHTML(st.Error) + "</td>")
+			sb.WriteString("</tr>\n")
+		}
+		sb.WriteString("</tbody></table>\n")
+	}
+
 	sb.WriteString("<h2>Project Information</h2>\n")
 	sb.WriteString("<div class=\"metric\"><span>Total Files</span><span>" + fmt.Sprintf("%d", result.ProjectInfo.TotalFiles) + "</span></div>\n")
 	sb.WriteString("<div class=\"metric\"><span>Total Lines</span><span>" + fmt.Sprintf("%d", result.ProjectInfo.TotalLines) + "</span></div>\n")
@@ -145,6 +167,20 @@ func (r *Reporter) SaveReport(reportDir, format string, content []byte) (string,
 	}
 
 	return filePath, nil
+}
+
+// degradedScanners returns the names of scanners that did not complete
+// successfully (missing, timed out, crashed) so the report can warn that the
+// result may be incomplete. Intentionally-disabled scanners are excluded.
+func degradedScanners(statuses []models.ToolStatus) []string {
+	var degraded []string
+	for _, st := range statuses {
+		if st.Status == "success" || st.Status == "skipped" {
+			continue
+		}
+		degraded = append(degraded, st.Tool+" ("+st.Status+")")
+	}
+	return degraded
 }
 
 func escapeHTML(s string) string {

@@ -31,15 +31,42 @@ type trivyOutput struct {
 	} `json:"Results"`
 }
 
-func (t *TrivyRunner) Run(projectPath string) []models.DependencyVulnerability {
-	out, ok := runTool("trivy", "fs", "--format", "json", "--quiet", "--skip-dirs", "node_modules", "--skip-dirs", ".git", projectPath)
-	if !ok || len(out) == 0 {
+// Run executes `trivy fs` and maps its JSON output to dependency findings.
+//
+// Invocation notes:
+//   - TRIVY_CACHE_DIR is pointed at a writable, ideally persistent location.
+//     On first run trivy downloads its vulnerability DB from the network; if
+//     that fails (offline serverless sandbox, no disk cache), the run errors
+//     and the failure is recorded in the report instead of silently returning
+//     zero findings.
+//   - --scanners vuln,secret,misconfig extends the scan beyond lockfiles so a
+//     bare project still gets checked for embedded secrets and misconfigs.
+func (t *TrivyRunner) Run(projectPath string, status *ToolStatusCollector) []models.DependencyVulnerability {
+	var env []string
+	if cacheDir := trivyCacheDir(); cacheDir != "" {
+		env = append(env, "TRIVY_CACHE_DIR="+cacheDir)
+	}
+
+	out, outcome := runToolEnv("", env, toolTimeout, "trivy",
+		"fs", "--format", "json", "--quiet",
+		"--scanners", "vuln,secret,misconfig",
+		"--skip-dirs", "node_modules", "--skip-dirs", ".git",
+		"--exit-code", "0",
+		projectPath)
+	defer func() { status.Record(outcome) }()
+
+	if outcome.Status != statusSuccess || len(out) == 0 {
+		// A failed trivy (e.g. vulnerability DB could not be downloaded) is
+		// recorded as an error by runToolEnv; an empty scan with exit 0 is
+		// genuinely clean. Either way there are no findings to report.
 		return nil
 	}
 
 	var parsed trivyOutput
 	if err := json.Unmarshal(out, &parsed); err != nil {
-		log.Printf("[trivy] failed to parse output: %v", err)
+		outcome.Status = statusError
+		outcome.Error = "failed to parse trivy output: " + truncate(string(out), 300)
+		log.Printf("[trivy] %s", outcome.Error)
 		return nil
 	}
 
@@ -60,5 +87,6 @@ func (t *TrivyRunner) Run(projectPath string) []models.DependencyVulnerability {
 		}
 	}
 
+	outcome.Findings = len(vulns)
 	return vulns
 }

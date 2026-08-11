@@ -32,7 +32,7 @@
     "upload.dragDrop": "Drag and drop your ZIP archive here",
     "upload.or": "or",
     "upload.chooseFile": "Choose File",
-    "upload.maxSize": "Maximum upload size: 50MB",
+    "upload.maxSize": "Unlimited upload size",
     "upload.supportedFormat": "Supported archive format: ZIP",
     "analysis.title": "Project Analysis",
     "analysis.preparing": "Preparing...",

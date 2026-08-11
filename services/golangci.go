@@ -12,13 +12,17 @@ func NewGolangCIRunner() *GolangCIRunner {
 	return &GolangCIRunner{}
 }
 
-func (g *GolangCIRunner) Run(projectPath string) ([]models.QualityFinding, models.QualityMetrics) {
+func (g *GolangCIRunner) Run(projectPath string, status *ToolStatusCollector) ([]models.QualityFinding, models.QualityMetrics) {
 	var findings []models.QualityFinding
 	var metrics models.QualityMetrics
 
-	cmd := exec.Command("golangci-lint", "run", "--out-format", "json", projectPath+"/...")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
+	output, outcome := runTool("golangci-lint", "run", "--out-format", "json", projectPath+"/...")
+	defer func() { status.Record(outcome) }()
+
+	if outcome.Status != statusSuccess {
+		// The real linter could not run (missing/timeout/crash): record that
+		// in the status and fall back to the lightweight heuristic scan so the
+		// report still shows quality signal instead of nothing.
 		return g.generateDefaultFindings(projectPath)
 	}
 
@@ -43,6 +47,7 @@ func (g *GolangCIRunner) Run(projectPath string) ([]models.QualityFinding, model
 		metrics.StyleIssues++
 	}
 
+	outcome.Findings = len(findings)
 	return findings, metrics
 }
 

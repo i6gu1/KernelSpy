@@ -27,7 +27,15 @@ var (
 	analysisID atomic.Int32
 )
 
-const maxUploadSize = 52428800 // 50 MB
+const (
+	// maxUploadMem is how much of an uploaded multipart body is kept in RAM
+	// before Go spills the rest to the OS temp dir. Uploads are otherwise
+	// unlimited in size.
+	maxUploadMem = 32 << 20
+	// maxUploadSize is a coarse safety net (5 GB) so one absurd request can't
+	// exhaust the serverless worker. Every legitimate project is far below it.
+	maxUploadSize = 5 << 30
+)
 
 type HomeHandler struct{}
 
@@ -58,10 +66,11 @@ func (u *UploadHandler) Upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Cap the request body before parsing so oversized uploads fail fast.
-	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize+1<<20)
+	// Give the body an effectively-unlimited ceiling; only the 5 GB safety net
+	// guards the serverless worker from an absurd single request.
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
 
-	if err := r.ParseMultipartForm(maxUploadSize); err != nil {
+	if err := r.ParseMultipartForm(maxUploadMem); err != nil {
 		middleware.WriteJSON(w, http.StatusBadRequest, map[string]interface{}{"error": "Upload failed"})
 		return
 	}
@@ -81,11 +90,6 @@ func (u *UploadHandler) Upload(w http.ResponseWriter, r *http.Request) {
 
 	if !strings.HasSuffix(strings.ToLower(header.Filename), ".zip") {
 		middleware.WriteJSON(w, http.StatusBadRequest, map[string]interface{}{"error": "Unsupported archive. Please upload a ZIP file."})
-		return
-	}
-
-	if header.Size > maxUploadSize {
-		middleware.WriteJSON(w, http.StatusBadRequest, map[string]interface{}{"error": "File too large. Maximum size is 50MB."})
 		return
 	}
 
@@ -127,35 +131,22 @@ func (u *UploadHandler) Upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The upload is valid and the scan is about to start: atomically check
-	// and record the user's single daily scan quota. Failed uploads never
-	// reach this point, so they don't consume the quota, and two concurrent
-	// uploads from the same IP cannot both pass.
-	if ok, retryAfter := rateLimiter.TryRecord(middleware.ClientIP(r)); !ok {
-		os.Remove(savePath)
-		os.RemoveAll(projectDir)
-		w.Header().Set("Retry-After", fmt.Sprintf("%d", retryAfter))
-		middleware.WriteJSON(w, http.StatusTooManyRequests, map[string]interface{}{
-			"error":               "Rate limit exceeded: you can scan only one project per day. Please try again tomorrow.",
-			"retry_after_seconds": retryAfter,
-		})
-		return
-	}
-
 	projectID := int(analysisID.Add(1))
 
-	// Mark the analysis as in-flight before the goroutine starts, so a status
-	// poll that lands in between never misreads it as "not found".
-	analysesMu.Lock()
-	pending[projectID] = struct{}{}
-	analysesMu.Unlock()
-
-	go runAnalysis(projectID, projectDir, savePath)
+	// Run the analysis synchronously *inside* this request. On Vercel's
+	// serverless Go runtime a background goroutine started after the response
+	// has been sent is frozen with the idle worker, so the result would never
+	// land in the in-memory store and the client would poll "running" forever
+	// (the "Analyzing" dead-end). Running the scan while this request is still
+	// in-flight keeps the worker alive until the report is ready and
+	// guarantees results exist before the client is sent to the results page.
+	runAnalysis(projectID, projectDir, savePath)
 
 	middleware.WriteJSON(w, http.StatusOK, map[string]interface{}{
 		"success":     true,
 		"analysis_id": projectID,
-		"message":     "Analysis started",
+		"status":      "completed",
+		"message":     "Analysis complete",
 	})
 }
 
@@ -165,9 +156,12 @@ func sanitizeFilename(name string) string {
 	return replacer.Replace(name)
 }
 
-// runAnalysis executes the SAST pipeline in a background goroutine, stores the
-// result and cleans up every temporary file (uploaded ZIP + extracted tree) so
-// /tmp never fills up on Vercel's ephemeral disk.
+// runAnalysis executes the SAST pipeline, stores the result and cleans up
+// every temporary file (uploaded ZIP + extracted tree) so /tmp never fills up
+// on Vercel's ephemeral disk. It is called synchronously from the upload
+// handler — not in a background goroutine — because serverless workers freeze
+// idle goroutines between requests, which would leave the analysis stuck in
+// "running" forever.
 func runAnalysis(projectID int, projectDir, zipPath string) {
 	// Register the cleanup before doing any work so it also runs on panic:
 	// mark the analysis as no longer in-flight (otherwise the status

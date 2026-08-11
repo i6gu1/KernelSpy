@@ -1,15 +1,17 @@
 # Black Hat
 
-A code analysis platform that detects security issues, dependency vulnerabilities and code quality problems using **industry-standard Static Application Security Testing (SAST) CLI tools**. No AI is used — every finding comes strictly from the tools' outputs.
+A code analysis platform that detects security issues, dependency vulnerabilities and code quality problems using **industry-standard Static Application Security Testing (SAST) CLI tools** plus a **built-in zero-dependency pattern analyzer**. No AI is used — every finding comes strictly from deterministic analysis.
 
 ![Black Hat](https://img.shields.io/badge/Black_Hat-Code_Analysis-000000?style=for-the-badge&labelColor=000000&color=ffffff)
 ![Go](https://img.shields.io/badge/Go-1.21-00ADD8?style=for-the-badge&logo=go&logoColor=white)
 
 ## Features
 
-- **Security Analysis** — runs Semgrep, Gosec, Bandit, Njsscan, ESLint (security rules) and Gitleaks concurrently and aggregates their JSON findings
-- **Dependency Analysis** — Trivy reports known vulnerabilities in your dependencies
+- **Security Analysis** — runs Semgrep, Gosec, Bandit, Njsscan, ESLint (security rules), Gitleaks and **CodeQL** concurrently and aggregates their JSON/SARIF findings
+- **Built-in Zero-Dependency Analyzer** — a pure-Go pattern analyzer (SQL injection, XSS, command injection, hardcoded secrets, weak crypto, unsafe deserialization, ...) that ALWAYS runs and produces real findings even when no external SAST tools are installed (e.g. serverless sandboxes like Vercel)
+- **Dependency Analysis** — Trivy **and OWASP Dependency-Check** report known vulnerabilities (CVEs) in your dependencies
 - **Code Quality** — ESLint, golangci-lint, Clippy, PMD and PHPStan findings plus quality metrics
+- **Fail-safe Scanner Status** — every scanner records its outcome (success/missing/timeout/error) into the report, so a tool that could not run is shown and the summary warns the scan may be incomplete — a missing tool can never masquerade as a clean scan
 - **Reports** — export detailed reports in JSON and HTML formats
 - **Multi-Language** — support for 5 languages: English, Arabic, Russian, French, Spanish
 - **RTL Support** — full Right-to-Left layout support for Arabic
@@ -19,16 +21,19 @@ A code analysis platform that detects security issues, dependency vulnerabilitie
 
 | Tool | Purpose | Language |
 |------|---------|----------|
+| Built-in pattern analyzer | SQL injection, XSS, command injection, secrets, weak crypto, deserialization (zero dependencies, always runs) | All |
 | Semgrep | Security scanning (XSS, SQL Injection, Command Injection, SSRF) | All |
+| CodeQL | Deep data-flow / taint-tracking analysis (zero-day logic flaws) | Go/Python/JS/TS/Ruby/Java/Kotlin/C#/C++/Swift |
 | Gitleaks | API keys, AWS keys, tokens, passwords | All |
-| Trivy | Dependency vulnerabilities, CVEs | All |
+| Trivy | Dependency vulnerabilities + secrets + IaC misconfig | All |
+| OWASP Dependency-Check | SCA: npm, pip, maven, gradle, nuget, composer, gem, cargo, go.mod | All |
 | Gosec | Go security scanner | Go |
 | Bandit | Python security linter | Python |
 | Njsscan | Node.js security scanner | JS/TS |
 | ESLint + security plugins | JS/TS linting + security rules | JS/TS |
 | golangci-lint / Clippy / PMD / PHPStan | Code quality | Go/Rust/Java/PHP |
 
-Tools are discovered at runtime from `SAST_TOOLS_DIR`, `/opt/bin`, `/usr/local/bin` and `PATH`. Missing tools are skipped gracefully — the pipeline never fails because a tool isn't installed.
+Tools are discovered at runtime from `CODQL_HOME`, `DEPENDENCY_CHECK_HOME`, `SAST_TOOLS_DIR`, `/opt/bin`, `/usr/local/bin` and `PATH`. **Fail-safe:** every scanner records a status in the report's **Scanner Status** section. A missing/timed-out/crashed scanner is surfaced there and the summary warns the scan may be incomplete — the pipeline never reports a clean scan because a tool silently failed to run. The **built-in analyzer always succeeds**, so even a serverless deployment with no external tools installed still returns a real report. See `DEBUGGING.md` for the full debugging checklist.
 
 ## Tech Stack
 
@@ -82,6 +87,20 @@ MAX_UPLOAD_SIZE=52428800
 SAST_TOOLS_DIR=/opt/bin
 ANALYSIS_TIMEOUT=600
 MAX_CONCURRENT_ANALYSES=5
+
+# Scanner tuning (fail-safe):
+CODQL_HOME=/opt/codeql                  # CodeQL install root (binary at $CODQL_HOME/codeql)
+DEPENDENCY_CHECK_HOME=/opt/dependency-check
+TRIVY_CACHE_DIR=/opt/trivy-cache        # persist the trivy vuln DB across restarts
+SAST_TOOL_TIMEOUT_SECONDS=300           # per-tool cap for the standard scanners
+CODQL_TIMEOUT_SECONDS=600               # per language for CodeQL db create + analyze
+DEPCHECK_TIMEOUT_SECONDS=600            # Dependency-Check first run downloads NVD data
+SEMGREP_CONFIG=auto                     # semgrep rule source; set to a local dir for offline
+SAST_CODQL_ENABLED=1                    # 0 to disable CodeQL entirely
+CODQL_LANGUAGES=                        # optional restrict, e.g. javascript,go
+DEPCHECK_EXTRA_ARGS=                    # optional extra depcheck flags, e.g. --disableRetireJS
+BUILTIN_TIMEOUT_SECONDS=45              # cap for the built-in pattern analyzer (fits serverless budgets)
+BUILTIN_MAX_FINDINGS=500                # max findings the built-in analyzer reports
 ```
 
 ## How it works
@@ -142,11 +161,15 @@ vercel --prod
 ```
 
 > **Note:** On Vercel's Go server runtime the app runs as a long-lived
-> process, so the background analysis goroutine completes normally and `/tmp`
-> is writable. SAST tools installed by `build.sh` are not present in Vercel's
-> runtime sandbox, so those scanners are skipped gracefully there — deploy the
-> **Docker image** (Render, Fly.io, a VPS, or any container host) for the
-> complete toolchain and the full 50 MB upload experience.
+> process and `/tmp` is writable. The analysis is run synchronously inside the
+> upload request (serverless workers freeze idle background goroutines, so no
+> polling dead-ends). SAST tools installed by `build.sh` are not present in
+> Vercel's runtime sandbox, so those scanners show `missing` in the Scanner
+> Status section — but the **built-in analyzer still scans the code and
+> reports real findings** (SQL injection, XSS, command injection, hardcoded
+> secrets, ...). For the deepest results, deploy the **Docker image**
+> (Render, Fly.io, a VPS, or any container host) where the full external
+> toolchain also runs.
 
 ### Docker (full SAST toolchain)
 

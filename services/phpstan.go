@@ -12,13 +12,14 @@ func NewPHPStanRunner() *PHPStanRunner {
 	return &PHPStanRunner{}
 }
 
-func (p *PHPStanRunner) Run(projectPath string) ([]models.QualityFinding, models.QualityMetrics) {
+func (p *PHPStanRunner) Run(projectPath string, status *ToolStatusCollector) ([]models.QualityFinding, models.QualityMetrics) {
 	var findings []models.QualityFinding
 	var metrics models.QualityMetrics
 
-	cmd := exec.Command("phpstan", "analyse", projectPath, "--format=json", "--no-progress")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
+	output, outcome := runTool("phpstan", "analyse", projectPath, "--format=json", "--no-progress")
+	defer func() { status.Record(outcome) }()
+
+	if outcome.Status != statusSuccess {
 		return p.generateDefaultFindings(projectPath)
 	}
 
@@ -46,6 +47,7 @@ func (p *PHPStanRunner) Run(projectPath string) ([]models.QualityFinding, models
 		}
 	}
 
+	outcome.Findings = len(findings)
 	return findings, metrics
 }
 

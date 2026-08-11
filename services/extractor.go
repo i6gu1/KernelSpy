@@ -18,13 +18,13 @@ func NewExtractor() *Extractor {
 const (
 	// maxExtractedBytes guards against zip-bomb uploads: the compressed archive
 	// may be small, but its expanded content is capped to protect the disk.
-	maxExtractedBytes = 200 * 1024 * 1024 // 200 MB total
+	maxExtractedBytes = 5 * 1024 * 1024 * 1024 // 5 GB total
 	// maxExtractedFileBytes caps a single entry so one huge file can't blow up
 	// the workspace by itself.
-	maxExtractedFileBytes = 50 * 1024 * 1024 // 50 MB per file
+	maxExtractedFileBytes = 500 * 1024 * 1024 // 500 MB per file
 	// maxExtractedEntries caps the number of files (symlink/special-file and
 	// decompression-bomb abuse protection).
-	maxExtractedEntries = 5000
+	maxExtractedEntries = 50000
 )
 
 // ExtractZIP safely extracts a ZIP archive into destDir. It rejects path

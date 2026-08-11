@@ -12,13 +12,14 @@ func NewPMDRunner() *PMDRunner {
 	return &PMDRunner{}
 }
 
-func (p *PMDRunner) Run(projectPath string) ([]models.QualityFinding, models.QualityMetrics) {
+func (p *PMDRunner) Run(projectPath string, status *ToolStatusCollector) ([]models.QualityFinding, models.QualityMetrics) {
 	var findings []models.QualityFinding
 	var metrics models.QualityMetrics
 
-	cmd := exec.Command("pmd", "check", "-d", projectPath, "-R", "rulesets/java/quickstart.xml", "-f", "json", "--no-cache")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
+	output, outcome := runTool("pmd", "check", "-d", projectPath, "-R", "rulesets/java/quickstart.xml", "-f", "json", "--no-cache")
+	defer func() { status.Record(outcome) }()
+
+	if outcome.Status != statusSuccess {
 		return p.generateDefaultFindings(projectPath)
 	}
 
@@ -39,6 +40,7 @@ func (p *PMDRunner) Run(projectPath string) ([]models.QualityFinding, models.Qua
 		findings = append(findings, finding)
 	}
 
+	outcome.Findings = len(findings)
 	return findings, metrics
 }
 

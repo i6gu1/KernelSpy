@@ -862,6 +862,12 @@ tr:hover {
 .badge-medium { background: var(--medium); color: #000000; }
 .badge-low { background: var(--low); color: #ffffff; }
 .badge-info { background: var(--info); color: #ffffff; }
+.badge-success { background: #16a34a; color: #ffffff; }
+.badge-missing { background: #6b7280; color: #ffffff; }
+.badge-timeout { background: #ea580c; color: #ffffff; }
+.badge-error { background: #dc2626; color: #ffffff; }
+.badge-skipped { background: #64748b; color: #ffffff; }
+.scanner-error { color: #f87171; font-size: 0.85rem; word-break: break-word; max-width: 420px; }
 
 /* Quality Metrics */
 .quality-metrics {

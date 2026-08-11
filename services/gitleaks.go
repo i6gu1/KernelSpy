@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"os"
+	"strconv"
 
 	"black-hat/models"
 )
@@ -27,33 +28,51 @@ type gitleaksFinding struct {
 	Match       string `json:"Match"`
 }
 
-func (g *GitleaksRunner) Run(projectPath string) []models.SecurityFinding {
+func (g *GitleaksRunner) Run(projectPath string, status *ToolStatusCollector) []models.SecurityFinding {
 	// Gitleaks exits non-zero when leaks are found; the JSON report is written
 	// to a unique temp file, so we parse that instead of stdout.
 	reportFile, err := os.CreateTemp("", "gitleaks-report-*.json")
 	if err != nil {
+		status.Record(&ToolOutcome{
+			Tool:   "gitleaks",
+			Status: statusError,
+			Error:  "failed to create gitleaks report file: " + err.Error(),
+		})
 		return nil
 	}
 	reportPath := reportFile.Name()
 	reportFile.Close()
 	defer removeFile(reportPath)
 
-	// Gitleaks exits with code 1 when it finds leaks — that is its designed
-	// behavior, not a failure — so the ok flag from runTool must NOT gate the
-	// report parsing. Findings live in the report file, which may be the only
-	// output. If the tool is missing, the temp file stays empty and the
-	// len(data)==0 check below returns nil gracefully.
-	runTool("gitleaks", "detect", "--source", projectPath,
+	// Exit code 1 is gitleaks' *designed* "leaks found" signal — not a
+	// failure. runToolEnv classifies it as statusError only when the process
+	// also produced no output, so flip that one case back to success here.
+	// A genuinely missing binary is still recorded as statusMissing.
+	_, outcome := runTool("gitleaks", "detect", "--source", projectPath,
 		"--report-format", "json", "--report-path", reportPath, "--no-banner")
+	if outcome != nil && outcome.Status == statusError && outcome.ExitCode == 1 {
+		outcome.Status = statusSuccess
+		outcome.Error = ""
+	}
+	defer func() { status.Record(outcome) }()
 
 	data, readErr := readFileContent(reportPath)
 	if readErr != nil || len(data) == 0 {
+		// No report file: exit 0 means genuinely no leaks. A non-zero exit with
+		// no report is a real gitleaks failure — record it instead of reporting
+		// a clean scan.
+		if outcome != nil && outcome.Status != statusMissing && outcome.ExitCode != 0 {
+			outcome.Status = statusError
+			outcome.Error = "gitleaks exited with code " + strconv.Itoa(outcome.ExitCode) + " but produced no report"
+		}
 		return nil
 	}
 
 	var findings []gitleaksFinding
 	if err := json.Unmarshal(data, &findings); err != nil {
-		log.Printf("[gitleaks] failed to parse report: %v", err)
+		outcome.Status = statusError
+		outcome.Error = "failed to parse gitleaks report: " + truncate(string(data), 300)
+		log.Printf("[gitleaks] %s", outcome.Error)
 		return nil
 	}
 
@@ -77,5 +96,6 @@ func (g *GitleaksRunner) Run(projectPath string) []models.SecurityFinding {
 		})
 	}
 
+	outcome.Findings = len(result)
 	return result
 }

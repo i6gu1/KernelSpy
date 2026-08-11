@@ -26,7 +26,7 @@
                 </label>
                 
                 <div class="upload-info">
-                    <p data-i18n="upload.maxSize">Maximum upload size: 50MB</p>
+                    <p data-i18n="upload.maxSize">Unlimited upload size</p>
                     <p data-i18n="upload.supportedFormat">Supported archive format: ZIP</p>
                 </div>
                 
@@ -75,11 +75,6 @@ function uploadHandler() {
                 return;
             }
             
-            if (file.size > 52428800) {
-                this.error = 'File too large. Maximum size is 50MB.';
-                return;
-            }
-            
             this.error = '';
             this.isUploading = true;
             this.progress = 0;
@@ -110,14 +105,14 @@ function uploadHandler() {
                 
                 const analysisId = data.analysis_id;
                 
-                // Navigate to the polling page which waits for the AI analysis
-                // to finish, then redirects to the results page. This replaces
-                // the old behavior of jumping straight to /results and showing
-                // "No analysis available" while analysis was still running.
+                // The backend now analyzes synchronously, so by the time this
+                // response arrives the report is complete. Jump straight to the
+                // results page instead of the polling page, whose background
+                // goroutine approach never finished on the serverless runtime.
                 this.progress = 90;
                 this.statusMessage = i18n.t('analysis.collecting');
                 
-                window.location.href = '/analysis/' + analysisId;
+                window.location.href = '/results/' + analysisId;
                 
             } catch (err) {
                 this.error = i18n.t('errors.uploadFailed');
