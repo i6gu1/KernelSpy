@@ -256,10 +256,9 @@ This project is open source and available under the [MIT License](LICENSE).
 Developed by **The L house**:
 - Mohammed Aloush
 - AbdulRahman Bakir
-- Maria Mohammed
 
 ## Contact
 
 - GitHub: [i6gu1](https://github.com/i6gu1/KernelSpy)
 - Email: nvapps@proton.me
-- Instagram: [real.lm2](https://www.instagram.com/real.lm2)
+- Instagram: [real.lm2](https://www.instagram.com/em.lhouse)
