@@ -35,6 +35,7 @@ type SecurityFinding struct {
 	Severity       string `json:"severity"`
 	Description    string `json:"description"`
 	Recommendation string `json:"recommendation"`
+	CodeSnippet    string `json:"code_snippet,omitempty"`
 	Tool           string `json:"tool"`
 }
 
@@ -82,6 +83,7 @@ type QualityMetrics struct {
 type ProjectInfo struct {
 	Structure    string         `json:"structure"`
 	Languages    map[string]int `json:"languages"`
+	Ecosystems   []string       `json:"ecosystems"`
 	Frameworks   []string       `json:"frameworks"`
 	ConfigFiles  []string       `json:"config_files"`
 	TotalFiles   int            `json:"total_files"`

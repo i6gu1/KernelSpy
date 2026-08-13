@@ -1,14 +1,17 @@
-# Black Hat
+# KernelSpy
 
-A code analysis platform that detects security issues, dependency vulnerabilities and code quality problems using **industry-standard Static Application Security Testing (SAST) CLI tools** plus a **built-in zero-dependency pattern analyzer**. No AI is used — every finding comes strictly from deterministic analysis.
+**KernelSpy** is a software project analysis platform that detects security issues, dependency vulnerabilities and code quality problems in **all major file types** using **industry-standard Static Application Security Testing (SAST) CLI tools** plus a **built-in zero-dependency pattern analyzer**. No AI is used — every finding comes strictly from deterministic analysis.
 
-![Black Hat](https://img.shields.io/badge/Black_Hat-Code_Analysis-000000?style=for-the-badge&labelColor=000000&color=ffffff)
+![KernelSpy](https://img.shields.io/badge/KernelSpy-Code_Analysis-000000?style=for-the-badge&labelColor=000000&color=ffffff)
 ![Go](https://img.shields.io/badge/Go-1.21-00ADD8?style=for-the-badge&logo=go&logoColor=white)
 
 ## Features
 
-- **Security Analysis** — runs Semgrep, Gosec, Bandit, Njsscan, ESLint (security rules), Gitleaks and **CodeQL** concurrently and aggregates their JSON/SARIF findings
+- **Security Analysis** — runs Semgrep, Gosec, Bandit, Njsscan, ESLint (security rules), SpotBugs+FindSecBugs, Gitleaks and **CodeQL** concurrently and aggregates their JSON/SARIF findings
 - **Built-in Zero-Dependency Analyzer** — a pure-Go pattern analyzer (SQL injection, XSS, command injection, hardcoded secrets, weak crypto, unsafe deserialization, ...) that ALWAYS runs and produces real findings even when no external SAST tools are installed (e.g. serverless sandboxes like Vercel)
+- **Pluggable Execution Backend** — scanners run natively by default; with `SAST_EXECUTOR=docker` each tool executes inside its official container image with the project mounted **read-only** (`:ro`), falling back to native when no Docker daemon is reachable
+- **Ecosystem & Language Detection** — languages are detected from source extensions *and* dependency manifests (`package.json` → npm, `composer.json` → php, `pom.xml` → maven, `Cargo.toml` → cargo, `Gemfile` → rubygems, `*.csproj` → nuget, ...), including HTML/CSS, with vendor trees (`node_modules`, `vendor`, `.git`) excluded
+- **Code Snippets** — every finding embeds the exact vulnerable line from the scanned file (UTF-8-safe, capped), so reports and the results UI show the offending code inline
 - **Dependency Analysis** — Trivy **and OWASP Dependency-Check** report known vulnerabilities (CVEs) in your dependencies
 - **Code Quality** — ESLint, golangci-lint, Clippy, PMD and PHPStan findings plus quality metrics
 - **Fail-safe Scanner Status** — every scanner records its outcome (success/missing/timeout/error) into the report, so a tool that could not run is shown and the summary warns the scan may be incomplete — a missing tool can never masquerade as a clean scan
@@ -31,7 +34,31 @@ A code analysis platform that detects security issues, dependency vulnerabilitie
 | Bandit | Python security linter | Python |
 | Njsscan | Node.js security scanner | JS/TS |
 | ESLint + security plugins | JS/TS linting + security rules | JS/TS |
+| SpotBugs + FindSecBugs | Java bytecode security scan (SQLi, XSS, path traversal, crypto misuse, ...) | Java |
+| Cppcheck | C/C++ memory-safety & security (buffer overflows, leaks, null derefs) | C/C++ |
+| Brakeman | Ruby on Rails security (SQLi, command injection, mass assignment, XSS) | Ruby |
+| ShellCheck | Shell script static analysis (quoting, eval, unsafe patterns) | sh/bash/zsh |
+| Checkov | Infrastructure-as-Code security (Terraform, Kubernetes, Docker, CloudFormation) | IaC |
 | golangci-lint / Clippy / PMD / PHPStan | Code quality | Go/Rust/Java/PHP |
+
+### Containerized execution matrix (`SAST_EXECUTOR=docker`)
+
+Each scanner is pinned to an official (or community-maintained) container image and executed with strict isolation:
+
+| Tool | Image |
+|------|-------|
+| Semgrep | `returntocorp/semgrep:latest` |
+| Bandit | `ghcr.io/pycontribs/bandit:latest` |
+| Gosec | `securego/gosec:latest` |
+| Gitleaks | `ghcr.io/gitleaks/gitleaks:latest` |
+| Trivy | `aquasec/trivy:latest` (persistent `/cache` vuln-DB mount) |
+| Njsscan | `opensecurity/njsscan:latest` |
+| ESLint | `node:20-bookworm-slim` (security plugins bootstrapped in-container) |
+| ShellCheck | `koalaman/shellcheck-alpine:latest` |
+| Brakeman | `presidentbeef/brakeman:latest` |
+| Checkov | `bridgecrew/checkov:latest` |
+
+The project is bind-mounted **read-only** at `/scan`, the host temp dir is mounted writable at `/tmp` for report files, and every invocation keeps the same per-tool timeout and outcome classification as native mode. Tools without an image mapping (CodeQL, Dependency-Check, SpotBugs, Cppcheck) fall back to the native install (build.sh installs them into the image via apt/gem). If `docker` is unavailable, the executor automatically falls back to native binaries — the pipeline never breaks.
 
 Tools are discovered at runtime from `CODQL_HOME`, `DEPENDENCY_CHECK_HOME`, `SAST_TOOLS_DIR`, `/opt/bin`, `/usr/local/bin` and `PATH`. **Fail-safe:** every scanner records a status in the report's **Scanner Status** section. A missing/timed-out/crashed scanner is surfaced there and the summary warns the scan may be incomplete — the pipeline never reports a clean scan because a tool silently failed to run. The **built-in analyzer always succeeds**, so even a serverless deployment with no external tools installed still returns a real report. See `DEBUGGING.md` for the full debugging checklist.
 
@@ -85,8 +112,21 @@ DATABASE_URL=postgres://user:password@localhost:5432/blackhat?sslmode=disable
 REDIS_URL=localhost:6379
 MAX_UPLOAD_SIZE=52428800
 SAST_TOOLS_DIR=/opt/bin
-ANALYSIS_TIMEOUT=600
+ANALYSIS_TIMEOUT=600                   # hard cap for one analysis run; set below your platform's function limit (Vercel Hobby: 280)
 MAX_CONCURRENT_ANALYSES=100            # order queue: up to 100 scans run at once; the 101st upload is told to wait
+
+# Technical SEO: public origin used for canonical URLs, Open Graph, JSON-LD
+# and the sitemap (robots.txt + sitemap.xml are served from this).
+SITE_URL=https://lbmmm.vercel.app        # set to your real domain (e.g. https://yourdomain.com)
+
+# Large-file uploads (Vercel): the platform caps direct multipart bodies at
+# 4.5 MB, which made ~40 MB project archives fail with a 413. To accept big
+# archives, create a Blob store in the Vercel dashboard and add its token;
+# the browser then PUTs the ZIP straight to Blob (no function body limit) and
+# the backend pulls it for analysis. Without the token, small uploads keep
+# working unchanged.
+BLOB_READ_WRITE_TOKEN=vercel_blob_rw_...   # enables direct-to-Blob browser uploads for large archives
+BLOB_ACCESS=private                        # 'private' (default) or 'public', must match the store
 
 # Scanner tuning (fail-safe):
 CODQL_HOME=/opt/codeql                  # CodeQL install root (binary at $CODQL_HOME/codeql)
@@ -95,20 +135,36 @@ TRIVY_CACHE_DIR=/opt/trivy-cache        # persist the trivy vuln DB across resta
 SAST_TOOL_TIMEOUT_SECONDS=300           # per-tool cap for the standard scanners
 CODQL_TIMEOUT_SECONDS=600               # per language for CodeQL db create + analyze
 DEPCHECK_TIMEOUT_SECONDS=600            # Dependency-Check first run downloads NVD data
-SEMGREP_CONFIG=auto                     # semgrep rule source; set to a local dir for offline
+SEMGREP_CONFIG=auto                     # semgrep rule source; 'auto' = registry rules, or a local dir for offline
 SAST_CODQL_ENABLED=1                    # 0 to disable CodeQL entirely
 CODQL_LANGUAGES=                        # optional restrict, e.g. javascript,go
 DEPCHECK_EXTRA_ARGS=                    # optional extra depcheck flags, e.g. --disableRetireJS
+
+# Execution backend:
+SAST_EXECUTOR=native                    # 'native' (default) or 'docker' (official container images, project mounted :ro)
+SPOTBUGS_HOME=/opt/spotbugs             # SpotBugs install root (findbugsXml.xml output directory)
 BUILTIN_TIMEOUT_SECONDS=45              # cap for the built-in pattern analyzer (fits serverless budgets)
 BUILTIN_MAX_FINDINGS=500                # max findings the built-in analyzer reports
 ```
 
 ## How it works
 
-1. **Upload** — the Go backend parses `multipart/form-data` with `net/http`, saves the ZIP under the OS temp dir (`/tmp` on Vercel — the only writable location), and extracts it with `archive/zip` under strict guards (path-traversal rejection, per-file and total expansion caps against zip bombs, entry-count limit).
-2. **Detect** — the project's languages and frameworks are detected from the extracted tree.
-3. **Scan (concurrently)** — every applicable SAST tool runs in its own goroutine (`sync.WaitGroup` + mutex-aggregated results). Each tool's JSON output is unmarshaled into typed Go structs.
-4. **Aggregate** — findings are unified into a single report: severity, file path, line number, description and the tool that produced each finding.
+1. **Upload** — projects up to **50 MB (and beyond)** are supported. Small archives are parsed as `multipart/form-data` with `net/http`; large archives (Vercel's 4.5 MB platform body limit) are uploaded **directly to Blob storage from the browser** (`POST /api/upload/token` mints a client token, the browser PUTs the file to Blob, `POST /api/upload/complete` downloads it server-side) — no platform body limit applies. Either way the ZIP is extracted with `archive/zip` under strict guards (path-traversal rejection, per-file and total expansion caps against zip bombs, entry-count limit).
+
+## Technical SEO
+
+KernelSpy ships production-ready technical SEO out of the box:
+
+- **Meta tags** — localized `<title>`/`description`/`keywords` (English + Arabic) with the brand name and primary keywords, under the 60/160-character limits.
+- **JSON-LD structured data** — a valid `SoftwareApplication` schema (`DeveloperApplication`, `operatingSystem: Web`, `offers` price 0) so search engines understand the product.
+- **Canonical URLs** — every page emits a `<link rel="canonical">` pointing at the `SITE_URL` origin (set `SITE_URL` to your real domain).
+- **Open Graph + Twitter cards** — rich social previews for sharing.
+- **`/robots.txt` & `/sitemap.xml`** — generated server-side from the same `SITE_URL`; dynamic analysis-result pages are deliberately excluded from the sitemap.
+
+Set the `SITE_URL` environment variable to your public domain (e.g. `https://yourdomain.com`) — canonical tags, Open Graph URLs, JSON-LD `url`, robots and the sitemap all follow it automatically.
+2. **Detect** — the project's languages, frameworks and dependency **ecosystems** are detected from source extensions and manifests (`package.json`, `requirements.txt`, `go.mod`, `composer.json`, `pom.xml`, `Cargo.toml`, `Gemfile`, `*.csproj`, ...), with vendor trees excluded.
+3. **Scan (concurrently)** — every applicable SAST tool runs in its own goroutine (`sync.WaitGroup` + mutex-aggregated results), each bounded by its own timeout (`context.WithTimeout`) so one hung scanner can never stall the pipeline. Each tool's JSON/XML output is unmarshaled into typed Go structs.
+4. **Aggregate** — findings are unified into a single report: severity, file path, exact line number, the vulnerable **code snippet**, description and the tool that produced each finding.
 5. **Clean up** — the extracted project and uploaded archive are deleted from `/tmp` after the scan.
 
 ## Project Structure
@@ -204,6 +260,6 @@ Developed by **The L house**:
 
 ## Contact
 
-- GitHub: [i6gu1](https://github.com/i6gu1/Black-hat)
+- GitHub: [i6gu1](https://github.com/i6gu1/KernelSpy)
 - Email: nvapps@proton.me
 - Instagram: [real.lm2](https://www.instagram.com/real.lm2)

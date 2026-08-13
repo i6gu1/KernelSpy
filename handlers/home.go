@@ -2,12 +2,16 @@ package handlers
 
 import (
 	"bytes"
+	"fmt"
 	"html/template"
 	"io/fs"
 	"log"
 	"net/http"
+	"os"
+	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"black-hat"
 	"black-hat/i18n"
@@ -47,6 +51,16 @@ func init() {
 	}
 }
 
+// siteURL returns the public origin of the deployment, used for canonical
+// URLs, Open Graph tags, JSON-LD and the sitemap. Override with the SITE_URL
+// env var (e.g. your custom domain); defaults to the Vercel deployment.
+func siteURL() string {
+	if v := os.Getenv("SITE_URL"); v != "" {
+		return strings.TrimSuffix(v, "/")
+	}
+	return "https://kernelspy.vercel.app"
+}
+
 // RenderTemplate renders a page into the response, resolving the language and
 // text direction from the request context (set by I18nMiddleware).
 func RenderTemplate(w http.ResponseWriter, r *http.Request, templateName string, data map[string]interface{}) {
@@ -59,6 +73,10 @@ func RenderTemplate(w http.ResponseWriter, r *http.Request, templateName string,
 	data["Lang"] = lang
 	data["Dir"] = dir
 	data["CurrentPage"] = templateName
+	data["SiteURL"] = siteURL()
+	// Clean the request path so canonical tags never carry "..", "//" or
+	// encoded noise (the raw URL.Path is decoded and uncleaned).
+	data["Canonical"] = siteURL() + path.Clean(r.URL.Path)
 
 	tmpl := templates[templateName]
 	if tmpl == nil {
@@ -122,11 +140,41 @@ func NewHandler() http.Handler {
 		middleware.WriteJSON(w, http.StatusOK, map[string]interface{}{"status": "ok"})
 	})
 
+	// Technical SEO: robots.txt and the XML sitemap, both generated from the
+	// same SITE_URL the canonical tags use, so crawlers see one consistent
+	// origin.
+	mux.HandleFunc("/robots.txt", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		fmt.Fprintf(w, "User-agent: *\nAllow: /\n\nSitemap: %s/sitemap.xml\n", siteURL())
+	})
+	mux.HandleFunc("/sitemap.xml", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+		base := siteURL()
+		// Public, indexable pages only — analysis results are ephemeral
+		// per-instance data and must never be crawled.
+		pages := []struct{ path, lastmod string }{
+			{"/", time.Now().Format("2006-01-02")},
+			{"/how-it-works", time.Now().Format("2006-01-02")},
+			{"/upload", time.Now().Format("2006-01-02")},
+			{"/privacy", time.Now().Format("2006-01-02")},
+		}
+		w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?>` + "\n"))
+		w.Write([]byte(`<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">` + "\n"))
+		for _, p := range pages {
+			fmt.Fprintf(w, "  <url>\n    <loc>%s%s</loc>\n    <lastmod>%s</lastmod>\n    <changefreq>weekly</changefreq>\n  </url>\n", base, p.path, p.lastmod)
+		}
+		w.Write([]byte(`</urlset>` + "\n"))
+	})
+
 	mux.Handle("/analysis/", http.HandlerFunc(a.AnalysisPage))
 	mux.Handle("/results/", http.HandlerFunc(d.ResultsPage))
 	mux.Handle("/reports/", http.HandlerFunc(r.ReportsPage))
 
 	mux.Handle("/api/upload", http.HandlerFunc(u.Upload))
+	mux.Handle("/api/upload/token", http.HandlerFunc(u.UploadToken))
+	mux.Handle("/api/upload/complete", http.HandlerFunc(u.CompleteUpload))
 	mux.Handle("/api/analysis/status/", http.HandlerFunc(api.AnalysisStatus))
 	mux.Handle("/api/results/security/", http.HandlerFunc(api.SecurityResults))
 	mux.Handle("/api/results/quality/", http.HandlerFunc(api.QualityResults))

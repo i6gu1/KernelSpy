@@ -46,10 +46,19 @@ WORKDIR /root/
 COPY build.sh /build.sh
 ENV SAST_SKIP_CODQL=1 \
     SAST_SKIP_DEPCHECK=1 \
+    SAST_SKIP_SPOTBUGS=1 \
+    SAST_SKIP_SHELLCHECK=1 \
+    SAST_SKIP_CPPCHECK=1 \
+    SAST_SKIP_BRAKEMAN=1 \
+    SAST_SKIP_CHECKOV=1 \
     SAST_TOOLS_DIR=/opt/bin \
     ESLINT_PREFIX=/opt/eslint \
     TRIVY_CACHE_DIR=/opt/trivy-cache \
     TRIVY_DB_REPOSITORY=ghcr.io/aquasecurity/trivy-db \
+    # The whole analysis must fit inside the platform function window
+    # (300 s max on Hobby); the watchdog fires at 280 s so a big project
+    # degrades into a clear timeout result instead of a cut-off request.
+    ANALYSIS_TIMEOUT=280 \
     PORT=80
 RUN bash /build.sh || true
 

@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -49,9 +51,9 @@ func maxConcurrentOrders() int {
 	return n
 }
 
-// reserveOrderSlot tries to take one of the 100 order slots. It returns true
-// when a slot was reserved (the upload may proceed) and false when the queue
-// is full (the 101st concurrent upload must wait).
+// reserveOrderSlot tries to take one of the order slots. It returns true when
+// a slot was reserved (the upload may proceed) and false when the queue is
+// full (the next concurrent upload must wait).
 func reserveOrderSlot() bool {
 	select {
 	case orderSlots <- struct{}{}:
@@ -111,6 +113,18 @@ func (u *UploadHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
 
 	if err := r.ParseMultipartForm(maxUploadMem); err != nil {
+		// Tell the client apart: "the request is simply too big" gets its own
+		// 413 and message instead of a generic upload error.
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			lang := middleware.LangFrom(r)
+			middleware.WriteJSON(w, http.StatusRequestEntityTooLarge, map[string]interface{}{
+				"error":     i18n.GetInstance().Translate(lang, "errors.uploadTooLarge"),
+				"too_large": true,
+				"max_bytes": maxErr.Limit,
+			})
+			return
+		}
 		middleware.WriteJSON(w, http.StatusBadRequest, map[string]interface{}{"error": "Upload failed"})
 		return
 	}
@@ -133,13 +147,21 @@ func (u *UploadHandler) Upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// ---- Order queue: up to 100 analyses run at once ----
+	// If all slots are taken, the next upload is told to wait until one of the
+	// running scans finishes; the finished scan's slot then goes to the next
+	// upload. The check happens here — before any file is saved or extracted,
+	// so a rejected order costs nothing (no temp files, no wasted extraction).
+	if !reserveOrderSlot() {
+		writeQueueFull(w, r)
+		return
+	}
+	defer releaseOrderSlot()
+
 	// ---- All file I/O happens under /tmp (os.TempDir) ----
 	tmpRoot := os.TempDir()
 	uploadDir := filepath.Join(tmpRoot, "blackhat-uploads")
-	extractDir := filepath.Join(tmpRoot, "blackhat-projects")
-
 	os.MkdirAll(uploadDir, 0o755)
-	os.MkdirAll(extractDir, 0o755)
 
 	savePath := filepath.Join(uploadDir, fmt.Sprintf("%d_%s", time.Now().UnixNano(), sanitizeFilename(header.Filename)))
 
@@ -156,43 +178,35 @@ func (u *UploadHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	}
 	out.Close()
 
+	u.analyzeArchive(w, savePath)
+}
+
+// analyzeArchive is the shared tail of both upload paths (direct multipart and
+// direct-to-Blob): it extracts the ZIP at zipPath into a fresh workspace under
+// /tmp, runs the analysis synchronously (bounded by ANALYSIS_TIMEOUT so a big
+// project can never blow a serverless request window), cleans up and answers
+// with the analysis id. The order slot is already reserved by the caller.
+func (u *UploadHandler) analyzeArchive(w http.ResponseWriter, zipPath string) {
+	tmpRoot := os.TempDir()
+	extractDir := filepath.Join(tmpRoot, "blackhat-projects")
+	os.MkdirAll(extractDir, 0o755)
+
 	projectDir := filepath.Join(extractDir, fmt.Sprintf("project_%d", time.Now().UnixNano()))
 	if err := os.MkdirAll(projectDir, 0o755); err != nil {
-		os.Remove(savePath)
+		os.Remove(zipPath)
 		middleware.WriteJSON(w, http.StatusInternalServerError, map[string]interface{}{"error": "Failed to prepare workspace"})
 		return
 	}
 
 	extractor := services.NewExtractor()
-	if err := extractor.ExtractZIP(savePath, projectDir); err != nil {
-		os.Remove(savePath)
+	if err := extractor.ExtractZIP(zipPath, projectDir); err != nil {
+		os.Remove(zipPath)
 		os.RemoveAll(projectDir)
 		middleware.WriteJSON(w, http.StatusBadRequest, map[string]interface{}{"error": "Failed to extract archive"})
 		return
 	}
 
 	projectID := int(analysisID.Add(1))
-
-	// ---- Order queue: up to 100 analyses run at once ----
-	// If all 100 slots are taken, the 101st upload is told to wait until one
-	// of the running scans finishes; the finished scan's slot then goes to
-	// the next upload. This happens *before* reserving the analysis ID and
-	// before any temp files are written, so a rejected order costs nothing.
-	if !reserveOrderSlot() {
-		os.Remove(savePath)
-		os.RemoveAll(projectDir)
-		lang := middleware.LangFrom(r)
-		msg := i18n.GetInstance().Translate(lang, "errors.queueFull")
-		w.Header().Set("Retry-After", "60")
-		middleware.WriteJSON(w, http.StatusTooManyRequests, map[string]interface{}{
-			"error":               msg,
-			"queue_full":          true,
-			"max_orders":          maxConcurrentOrders(),
-			"retry_after_seconds": 60,
-		})
-		return
-	}
-	defer releaseOrderSlot()
 
 	// Run the analysis synchronously *inside* this request. On Vercel's
 	// serverless Go runtime a background goroutine started after the response
@@ -201,7 +215,7 @@ func (u *UploadHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	// (the "Analyzing" dead-end). Running the scan while this request is still
 	// in-flight keeps the worker alive until the report is ready and
 	// guarantees results exist before the client is sent to the results page.
-	runAnalysis(projectID, projectDir, savePath)
+	runAnalysis(projectID, projectDir, zipPath)
 
 	middleware.WriteJSON(w, http.StatusOK, map[string]interface{}{
 		"success":     true,
@@ -209,6 +223,127 @@ func (u *UploadHandler) Upload(w http.ResponseWriter, r *http.Request) {
 		"status":      "completed",
 		"message":     "Analysis complete",
 	})
+}
+
+// writeQueueFull answers a 429 when every analysis slot is busy.
+func writeQueueFull(w http.ResponseWriter, r *http.Request) {
+	lang := middleware.LangFrom(r)
+	max := maxConcurrentOrders()
+	msg := fmt.Sprintf(i18n.GetInstance().Translate(lang, "errors.queueFull"), max)
+	w.Header().Set("Retry-After", "60")
+	middleware.WriteJSON(w, http.StatusTooManyRequests, map[string]interface{}{
+		"error":               msg,
+		"queue_full":          true,
+		"max_orders":          max,
+		"retry_after_seconds": 60,
+	})
+}
+
+// UploadToken mints a client upload token for the direct-to-Blob upload path
+// (the browser PUTs the ZIP straight to Vercel Blob, bypassing the 4.5 MB
+// platform body limit that makes large direct uploads fail). The request is
+// tiny JSON, so it always fits the platform limit. When no Blob store is
+// configured it answers {"enabled":false} and the client falls back to the
+// classic direct multipart upload.
+func (u *UploadHandler) UploadToken(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		middleware.WriteJSON(w, http.StatusMethodNotAllowed, map[string]interface{}{"error": "Method not allowed"})
+		return
+	}
+
+	store := services.NewBlobStore()
+	if !store.Enabled() {
+		middleware.WriteJSON(w, http.StatusOK, map[string]interface{}{"enabled": false})
+		return
+	}
+
+	var req struct {
+		Filename string `json:"filename"`
+	}
+	if r.Body != nil {
+		json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&req)
+	}
+	filename := "project.zip"
+	if req.Filename != "" {
+		filename = sanitizeFilename(req.Filename)
+	}
+	if !strings.HasSuffix(strings.ToLower(filename), ".zip") {
+		filename += ".zip"
+	}
+	pathname := fmt.Sprintf("uploads/%d_%s", time.Now().UnixNano(), filename)
+
+	token, expires, err := store.ClientToken(pathname)
+	if err != nil {
+		lang := middleware.LangFrom(r)
+		middleware.WriteJSON(w, http.StatusInternalServerError, map[string]interface{}{"error": i18n.GetInstance().Translate(lang, "errors.uploadFailed")})
+		return
+	}
+	uploadURL, blobURL := store.UploadURL(pathname)
+
+	middleware.WriteJSON(w, http.StatusOK, map[string]interface{}{
+		"enabled":     true,
+		"token":       token,
+		"store_id":    store.StoreID(),
+		"access":      store.Access(),
+		"upload_url":  uploadURL,
+		"blob_url":    blobURL,
+		"api_version": store.APIVersion(),
+		"expires_at":  expires.Unix(),
+	})
+}
+
+// CompleteUpload finalizes a direct-to-Blob upload. The browser has already
+// PUT the ZIP to Vercel Blob (no platform body limit), so this endpoint
+// downloads it server-side — also exempt from the client body limit — extracts
+// it and runs the exact same analysis pipeline as a direct upload.
+func (u *UploadHandler) CompleteUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		middleware.WriteJSON(w, http.StatusMethodNotAllowed, map[string]interface{}{"error": "Method not allowed"})
+		return
+	}
+
+	lang := middleware.LangFrom(r)
+	translate := func(key string) string { return i18n.GetInstance().Translate(lang, key) }
+
+	var req struct {
+		BlobURL string `json:"blobUrl"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil || req.BlobURL == "" {
+		middleware.WriteJSON(w, http.StatusBadRequest, map[string]interface{}{"error": translate("errors.uploadFailed")})
+		return
+	}
+	if !strings.HasPrefix(req.BlobURL, "https://") {
+		middleware.WriteJSON(w, http.StatusBadRequest, map[string]interface{}{"error": translate("errors.uploadFailed")})
+		return
+	}
+
+	store := services.NewBlobStore()
+	if !store.Enabled() {
+		middleware.WriteJSON(w, http.StatusBadRequest, map[string]interface{}{"error": translate("errors.largeUploadNotConfigured")})
+		return
+	}
+
+	if !reserveOrderSlot() {
+		writeQueueFull(w, r)
+		return
+	}
+	defer releaseOrderSlot()
+
+	tmpRoot := os.TempDir()
+	uploadDir := filepath.Join(tmpRoot, "blackhat-uploads")
+	os.MkdirAll(uploadDir, 0o755)
+	savePath := filepath.Join(uploadDir, fmt.Sprintf("%d_project.zip", time.Now().UnixNano()))
+
+	if _, err := store.DownloadTo(req.BlobURL, savePath); err != nil {
+		os.Remove(savePath)
+		middleware.WriteJSON(w, http.StatusInternalServerError, map[string]interface{}{"error": translate("errors.uploadFailed")})
+		return
+	}
+	// The object is on disk now — free the store space immediately
+	// (best-effort; a failed delete is only a storage-leak risk, not a bug).
+	_ = store.Delete(req.BlobURL)
+
+	u.analyzeArchive(w, savePath)
 }
 
 func sanitizeFilename(name string) string {
@@ -236,26 +371,63 @@ func runAnalysis(projectID int, projectDir, zipPath string) {
 		os.Remove(zipPath)
 	}()
 
+	// A large project can take a while, but the whole analysis must still fit
+	// inside the platform's function window (300 s on Vercel Hobby). The
+	// watchdog caps the pipeline at ANALYSIS_TIMEOUT (default 600 s) so a big
+	// upload degrades into a clear timeout result instead of a request cut off
+	// mid-flight by the platform. When the deadline fires, the abandoned
+	// AnalyzeProject goroutine keeps running in the background but stays
+	// bounded: every tool subprocess has its own per-tool timeout and the
+	// cleanup below removes the project dir, so it fails fast and drains.
 	analyzer := services.NewAnalyzer()
 	start := time.Now()
-	result, err := analyzer.AnalyzeProject(projectDir)
+
+	type outcome struct {
+		result *models.AnalysisResult
+		err    error
+	}
+	ch := make(chan outcome, 1)
+	go func() {
+		result, err := analyzer.AnalyzeProject(projectDir)
+		ch <- outcome{result: result, err: err}
+	}()
+
+	deadline := analysisDeadline()
+	var o outcome
+	select {
+	case o = <-ch:
+	case <-time.After(deadline):
+		o = outcome{err: fmt.Errorf("analysis exceeded the %s deadline", deadline)}
+	}
 	duration := time.Since(start)
 
-	if err != nil {
+	if o.err != nil {
 		analysesMu.Lock()
 		analyses[projectID] = &models.AnalysisResult{
 			FilesScanned:    0,
 			DurationSeconds: int(duration.Seconds()),
-			Error:           err.Error(),
+			Error:           o.err.Error(),
 		}
 		analysesMu.Unlock()
 		return
 	}
 
-	result.DurationSeconds = int(duration.Seconds())
+	o.result.DurationSeconds = int(duration.Seconds())
 	analysesMu.Lock()
-	analyses[projectID] = result
+	analyses[projectID] = o.result
 	analysesMu.Unlock()
+}
+
+// analysisDeadline is the hard cap for a single analysis run, from the
+// ANALYSIS_TIMEOUT env var (seconds; default 600). Deployments with a tighter
+// platform window (Vercel Hobby: 300 s) should set it a little below that.
+func analysisDeadline() time.Duration {
+	if v := os.Getenv("ANALYSIS_TIMEOUT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return time.Duration(n) * time.Second
+		}
+	}
+	return 600 * time.Second
 }
 
 // lookupResult retrieves an analysis result by id.

@@ -32,9 +32,14 @@ type Analyzer struct {
 	clippy   *ClippyRunner
 	pmd      *PMDRunner
 	phpstan  *PHPStanRunner
-	codeql   *CodeQLRunner
-	depcheck *DependencyCheckRunner
-	builtin  *BuiltinRunner
+	codeql    *CodeQLRunner
+	depcheck  *DependencyCheckRunner
+	spotbugs  *SpotBugsRunner
+	builtin   *BuiltinRunner
+	cppcheck  *CppcheckRunner
+	shellcheck *ShellCheckRunner
+	brakeman  *BrakemanRunner
+	checkov   *CheckovRunner
 }
 
 func NewAnalyzer() *Analyzer {
@@ -51,9 +56,14 @@ func NewAnalyzer() *Analyzer {
 		clippy:   NewClippyRunner(),
 		pmd:      NewPMDRunner(),
 		phpstan:  NewPHPStanRunner(),
-		codeql:   NewCodeQLRunner(),
-		depcheck: NewDependencyCheckRunner(),
-		builtin:  NewBuiltinRunner(),
+		codeql:     NewCodeQLRunner(),
+		depcheck:   NewDependencyCheckRunner(),
+		spotbugs:   NewSpotBugsRunner(),
+		builtin:    NewBuiltinRunner(),
+		cppcheck:   NewCppcheckRunner(),
+		shellcheck: NewShellCheckRunner(),
+		brakeman:   NewBrakemanRunner(),
+		checkov:    NewCheckovRunner(),
 	}
 }
 
@@ -73,6 +83,7 @@ func (a *Analyzer) AnalyzeProject(projectPath string) (*models.AnalysisResult, e
 	projectInfo := models.ProjectInfo{
 		Structure:    getProjectStructure(projectPath),
 		Languages:    countByLanguage(projectPath),
+		Ecosystems:   a.detector.DetectEcosystems(projectPath),
 		Frameworks:   frameworks,
 		ConfigFiles:  configFiles,
 		TotalFiles:   fileCount,
@@ -160,6 +171,23 @@ func (a *Analyzer) AnalyzeProject(projectPath string) (*models.AnalysisResult, e
 		addSecurity(a.codeql.Run(projectPath, languages, statuses))
 	}()
 
+	// Shell script analysis (self-gates: skips when the project has no
+	// .sh/.bash/.zsh files).
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		findings, metrics := a.shellcheck.Run(projectPath, statuses)
+		addQuality(findings, metrics)
+	}()
+
+	// Infrastructure-as-Code security (self-gates: skips when the project
+	// has no terraform/k8s/docker/compose files).
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		addSecurity(a.checkov.Run(projectPath, statuses))
+	}()
+
 	// ---- Language-specific scanners ----
 	for _, lang := range languages {
 		switch lang {
@@ -208,6 +236,13 @@ func (a *Analyzer) AnalyzeProject(projectPath string) (*models.AnalysisResult, e
 				findings, metrics := a.pmd.Run(projectPath, statuses)
 				addQuality(findings, metrics)
 			}()
+			// Dedicated Java security scanner: SpotBugs + FindSecBugs
+			// (bytecode analysis — the runner compiles the sources first).
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				addSecurity(a.spotbugs.Run(projectPath, statuses))
+			}()
 		case "php":
 			wg.Add(1)
 			go func() {
@@ -215,13 +250,37 @@ func (a *Analyzer) AnalyzeProject(projectPath string) (*models.AnalysisResult, e
 				findings, metrics := a.phpstan.Run(projectPath, statuses)
 				addQuality(findings, metrics)
 			}()
-			// Kotlin, C#, Ruby, C/C++, Swift and the rest are covered by the
-			// language-agnostic Semgrep + CodeQL scanners, so no dedicated runner
-			// is needed here.
+		case "c", "cpp":
+			// C/C++ memory-safety & security (Cppcheck).
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				addSecurity(a.cppcheck.Run(projectPath, statuses))
+			}()
+		case "ruby":
+			// Ruby on Rails security (Brakeman; self-gates on Rails apps).
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				addSecurity(a.brakeman.Run(projectPath, statuses))
+			}()
+			// Kotlin, C#, Swift, Rust security and the rest are covered by the
+			// language-agnostic Semgrep + CodeQL scanners and the built-in
+			// analyzer, so no dedicated runner is needed here.
 		}
 	}
 
 	wg.Wait()
+
+	// ---- Unify the report schema: attach the vulnerable-code snippet ----
+	// Every finding carries the exact line of code that triggered it (read
+	// from the scanned file) so reports show the vulnerable snippet next to
+	// the rule, file, line, severity and remediation.
+	for i := range securityFindings {
+		if securityFindings[i].CodeSnippet == "" {
+			securityFindings[i].CodeSnippet = snippetAt(projectPath, securityFindings[i].FilePath, securityFindings[i].LineNumber)
+		}
+	}
 
 	toolStatuses := statuses.Snapshot()
 	result := &models.AnalysisResult{

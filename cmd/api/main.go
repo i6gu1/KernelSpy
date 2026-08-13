@@ -47,6 +47,6 @@ func main() {
 		IdleTimeout:       60 * time.Second,
 	}
 
-	log.Printf("Black Hat starting on port %s (uploads in %s)", port, os.TempDir())
+	log.Printf("KernelSpy starting on port %s (uploads in %s)", port, os.TempDir())
 	log.Fatal(srv.ListenAndServe())
 }

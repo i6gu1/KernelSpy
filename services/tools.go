@@ -1,9 +1,8 @@
 package services
 
 import (
-	"context"
+	"bufio"
 	"errors"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"black-hat/models"
 )
@@ -138,53 +138,21 @@ func runToolInDir(dir, name string, args ...string) ([]byte, *ToolOutcome) {
 	return runToolEnv(dir, nil, toolTimeout, name, args...)
 }
 
-// runToolEnv is the single choke point for every scanner invocation: it
-// resolves the binary, enforces the timeout, captures combined stderr/stdout
-// and classifies the outcome. `env` holds extra KEY=VALUE pairs for the child
-// process (e.g. SEMGREP_SEND_METRICS=off, TRIVY_CACHE_DIR=...).
+// runToolEnv is the single choke point for every scanner invocation. It builds
+// an executor-agnostic ExecOptions and hands it to the active Executor, which
+// either runs the tool as a host process (NativeExecutor) or inside its
+// official container image (DockerExecutor, SAST_EXECUTOR=docker). Either way
+// the outcome is classified into the same vocabulary: missing | timeout |
+// error | success. `env` holds extra KEY=VALUE pairs for the child process
+// (e.g. SEMGREP_SEND_METRICS=off, TRIVY_CACHE_DIR=...).
 func runToolEnv(dir string, env []string, timeout time.Duration, name string, args ...string) ([]byte, *ToolOutcome) {
-	outcome := &ToolOutcome{Tool: name}
-	start := time.Now()
-	defer func() { outcome.Duration = time.Since(start) }()
-
-	bin := findTool(name)
-	if bin == "" {
-		outcome.Status = statusMissing
-		outcome.Error = name + " is not installed (checked SAST_TOOLS_DIR, /opt/bin, /usr/local/bin and PATH)"
-		log.Printf("[sast] %s: %s", name, outcome.Error)
-		return nil, outcome
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, bin, args...)
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), env...)
-	out, err := cmd.CombinedOutput()
-	outcome.ExitCode = exitCode(err)
-
-	switch {
-	case ctx.Err() != nil:
-		outcome.Status = statusTimeout
-		outcome.Error = "timed out after " + timeout.String()
-		log.Printf("[sast] %s: %s", name, outcome.Error)
-		return nil, outcome
-	case err != nil && len(out) == 0:
-		outcome.Status = statusError
-		outcome.Error = err.Error()
-		log.Printf("[sast] %s: failed: %v", name, err)
-		return nil, outcome
-	case err != nil:
-		// Non-zero exit with output. For finding-orientated tools this is the
-		// designed "found issues" signal (semgrep exits 1, gitleaks exits 1,
-		// trivy only with --exit-code). The caller decides what the output is.
-		outcome.Status = statusSuccess
-		log.Printf("[sast] %s: exited with code %d but produced output; treating output as the report", name, outcome.ExitCode)
-	default:
-		outcome.Status = statusSuccess
-	}
-	return out, outcome
+	return getExecutor().Invoke(ExecOptions{
+		Tool:    name,
+		Args:    args,
+		WorkDir: dir,
+		Env:     env,
+		Timeout: timeout,
+	})
 }
 
 func exitCode(err error) int {
@@ -285,6 +253,72 @@ func readFileContent(path string) ([]byte, error) {
 	return os.ReadFile(path)
 }
 
+// maxSnippetChars caps the vulnerable-code snippet embedded in reports and the
+// results UI. The cap is on bytes so multi-byte (non-ASCII) code cannot inflate
+// the payload size.
+const maxSnippetChars = 200
+
+// truncateUTF8 trims s to at most max bytes without splitting a multi-byte
+// rune, so the result is always valid UTF-8.
+func truncateUTF8(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	for max > 0 && !utf8.RuneStart(s[max]) {
+		max--
+	}
+	return s[:max]
+}
+
+// snippetAt extracts the exact vulnerable line from the scanned file at the
+// finding's reported line number, capped for safe embedding in reports and the
+// results UI. It returns "" when the file or line cannot be resolved — the
+// finding is still reported, just without a snippet.
+//
+// Safety: the tool-reported path is containment-checked so a hostile or buggy
+// scanner can never trick the report into reading a file from elsewhere on the
+// host (a "../../etc/passwd" path must not escape the project root), and the
+// file is streamed only up to the target line — minified bundles can be tens
+// of megabytes, and reading the whole file per finding is an OOM risk.
+func snippetAt(projectPath, file string, line int) string {
+	if file == "" || line <= 0 {
+		return ""
+	}
+	full := filepath.Join(projectPath, filepath.FromSlash(file))
+	// Containment guard: the resolved path must stay inside the project.
+	rel, err := filepath.Rel(filepath.Clean(projectPath), full)
+	if err != nil {
+		return ""
+	}
+	rel = filepath.ToSlash(rel) // Windows returns "..\x" — normalize to "../x"
+	if rel == ".." || strings.HasPrefix(rel, "../") {
+		return ""
+	}
+	f, err := os.Open(full)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+
+	// Stream up to the target line only.
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024) // tolerate long minified lines
+	cur := 0
+	for sc.Scan() {
+		cur++
+		if cur == line {
+			snippet := strings.TrimSpace(sc.Text())
+			if len(snippet) > maxSnippetChars {
+				// Reserve room for the ellipsis so the capped result stays
+				// within the byte budget ("…" is 3 bytes in UTF-8).
+				snippet = truncateUTF8(snippet, maxSnippetChars-len("…")) + "…"
+			}
+			return snippet
+		}
+	}
+	return ""
+}
+
 // extractJSONValue returns the string value of the first occurrence of `key`
 // in a JSON fragment. Used by the language-specific quality runners that keep
 // lightweight parsing. It only handles quoted string values.
@@ -309,13 +343,14 @@ func extractJSONValue(json, key string) string {
 	return ""
 }
 
-// truncate limits a string to n characters for safe embedding in error/status
+// truncate limits a string to n bytes for safe embedding in error/status
 // messages (e.g. a snippet of a scanner's stderr so failures are diagnosable).
+// The ellipsis is included in the budget and rune boundaries are respected.
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}
-	return strings.TrimSpace(s[:n]) + "…"
+	return strings.TrimSpace(truncateUTF8(s, n-len("…"))) + "…"
 }
 
 // trivyCacheDir returns where Trivy should keep its vulnerability DB and

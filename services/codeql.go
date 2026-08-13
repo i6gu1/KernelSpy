@@ -82,7 +82,7 @@ func (c *CodeQLRunner) Run(projectPath string, languages []string, status *ToolS
 // analyzeLanguage runs database create + analyze for one CodeQL language and
 // fills `outcome` with the result (success/missing/timeout/error).
 func (c *CodeQLRunner) analyzeLanguage(projectPath, ql string, outcome *ToolOutcome) []models.SecurityFinding {
-	if findTool("codeql") == "" {
+	if !toolAvailable("codeql") {
 		outcome.Status = statusMissing
 		outcome.Error = "codeql is not available in this deployment (serverless containers skip the 1.5 GB bundle; the full Docker image installs it via build.sh)"
 		return nil

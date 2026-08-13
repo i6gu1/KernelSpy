@@ -3,11 +3,70 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Black Hat - Code Analysis Platform">
     <meta name="theme-color" content="#000000">
     <meta name="google-site-verification" content="J1VOL_HAl8OSRzQCL6e-qqO1KP0Q38Nceoo4r96rcqA" />
+
+    {{/* ---- Localized title: brand + primary keyword, kept under 60 chars ---- */}}
+    {{if eq .Lang "ar"}}
+    <title>كيرنل سباي — تحليل المشاريع البرمجية وفحص الثغرات الأمنية</title>
+    <meta name="description" content="منصة مجانية لتحليل المشاريع البرمجية: ارفع ملف ZIP واحصل على تقرير أمني شامل — فحص ثغرات الكود (SAST)، ثغرات التبعيات (SCA)، الأسرار المضمّنة وجودة الكود.">
+    <meta name="keywords" content="تحليل المشاريع البرمجية, فحص أمني للكود, فحص الثغرات, تحليل الكود, أداة مراجعة الكود, كشف الثغرات, سكانر الثغرات, تحليل التبعيات">
+    {{else if eq .CurrentPage "upload"}}
+    <title>Upload Project — KernelSpy Code Analyzer</title>
+    <meta name="description" content="Upload your project ZIP to KernelSpy and get a free security analysis: SAST findings, dependency vulnerabilities, hardcoded secrets and code quality — all in one report.">
+    <meta name="keywords" content="upload project, code analysis, security scanner, static code analysis, vulnerability scanner, SAST report">
+    {{else if eq .CurrentPage "how-it-works"}}
+    <title>How It Works — KernelSpy Code Analysis</title>
+    <meta name="description" content="See how KernelSpy analyzes your software project: upload a ZIP, 15+ open-source scanners run concurrently (Semgrep, Trivy, Gosec, Bandit, CodeQL), and you get a unified security report.">
+    <meta name="keywords" content="how it works, code analysis pipeline, SAST tools, concurrent scanning, security report">
+    {{else if eq .CurrentPage "privacy"}}
+    <title>Privacy Policy — KernelSpy</title>
+    <meta name="description" content="KernelSpy privacy policy: how uploaded projects are handled, stored and deleted after analysis. Your code is processed securely and removed from our servers.">
+    <meta name="keywords" content="privacy policy, code privacy, secure code analysis">
+    {{else}}
+    <title>KernelSpy — Software Project Analysis & Vulnerability Scanner</title>
+    <meta name="description" content="Free software project analysis: upload a ZIP and get a full security report — SAST, dependency CVEs, hardcoded secrets and code quality, powered by Semgrep, Trivy and 15+ scanners.">
+    <meta name="keywords" content="software project analysis, static code analysis, vulnerability scanner, SAST, code review tool, dependency scanner, security analysis, تحليل المشاريع البرمجية">
+    {{end}}
+
+    {{/* ---- Canonical: one origin for the whole site (SITE_URL env) ---- */}}
+    <link rel="canonical" href="{{.Canonical}}">
+
+    {{/* ---- Open Graph ---- */}}
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="KernelSpy">
+    <meta property="og:title" content="KernelSpy — Software Project Analysis & Vulnerability Scanner">
+    <meta property="og:description" content="Upload your project ZIP and get a full security analysis report: SAST findings, dependency vulnerabilities, secrets and code quality.">
+    <meta property="og:url" content="{{.Canonical}}">
+    <meta property="og:image" content="{{.SiteURL}}/static/ui/pic/emblem.jpg">
+    <meta property="og:locale" content="{{if eq .Lang "ar"}}ar_AR{{else}}en_US{{end}}">
+
+    {{/* ---- Twitter cards ---- */}}
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="KernelSpy — Software Project Analysis & Vulnerability Scanner">
+    <meta name="twitter:description" content="Free static code analysis and vulnerability scanning for software projects. Upload a ZIP, get a full security report.">
+    <meta name="twitter:image" content="{{.SiteURL}}/static/ui/pic/emblem.jpg">
+
     <link rel="icon" type="image/jpeg" href="/static/ui/pic/emblem.jpg">
-    <title>Black Hat</title>
+
+    {{/* ---- Structured data: SoftwareApplication (JSON-LD) ---- */}}
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "KernelSpy",
+      "url": "{{.SiteURL}}",
+      "applicationCategory": "DeveloperApplication",
+      "operatingSystem": "Web",
+      "description": "Software project analysis platform that scans uploaded source code for security vulnerabilities (SAST), dependency vulnerabilities (SCA), hardcoded secrets and code quality issues using open-source tools.",
+      "inLanguage": "{{if eq .Lang "ar"}}ar{{else}}en{{end}}",
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+      "featureList": "Static Application Security Testing (SAST); Software Composition Analysis (SCA); secret detection; code quality metrics; multi-language support; JSON and HTML reports",
+      "sameAs": "https://github.com/i6gu1/KernelSpy",
+      "publisher": { "@type": "Organization", "name": "KernelSpy", "url": "{{.SiteURL}}" }
+    }
+    </script>
+
     <link rel="stylesheet" href="/static/css/main.css">
     <link rel="stylesheet" href="/static/css/animations.css">
     <link rel="stylesheet" href="/static/css/responsive.css">

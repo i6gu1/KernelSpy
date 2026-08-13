@@ -306,6 +306,52 @@ var builtinRules = []builtinRule{
 		exts(".cs"),
 		`\bBinaryFormatter\b`, "", "", ""),
 
+	// ---------------- C / C++ ----------------
+	rule("builtin.unsafe-string.c", "high",
+		"Memory-unsafe string function: strcpy/strcat/gets/sprintf can overflow buffers when fed untrusted input.",
+		"Use bounded variants (strncpy/strncat/snprintf) with explicit sizes, or std::string / std::string_view in C++.",
+		exts(".c", ".cpp", ".cc", ".h", ".hpp"),
+		`\b(strcpy|strcat|sprintf|gets|scanf)\s*\(`, "", "", ""),
+	rule("builtin.command-injection.c", "high",
+		"Command injection: system/popen executes a shell command built with concatenated or unvalidated data.",
+		"Pass arguments via execve-family calls without a shell; never let untrusted input reach a shell string.",
+		exts(".c", ".cpp", ".cc"),
+		`\b(system|popen)\s*\(`,
+		`(\s*\+|snprintf\s*\(|sprintf\s*\(|argv|getenv|fgets|fscanf|cin\s*>>)`, "", ""),
+	rule("builtin.format-string.c", "medium",
+		"Format-string vulnerability: a non-literal string is used as the format argument of a printf-family call.",
+		"Always pass a literal format string; pass variables as arguments, never as the format itself.",
+		exts(".c", ".cpp", ".cc", ".h", ".hpp"),
+		`\b(printf|fprintf|sprintf|snprintf|syslog)\s*\(\s*[A-Za-z_][A-Za-z0-9_]*\s*(,|\))`,
+		"", "", `stderr|stdout|LOG_`),
+
+	// ---------------- C# ----------------
+	rule("builtin.xss.csharp", "high",
+		"Cross-site scripting: request data is written straight into the HTTP response unescaped.",
+		"HTML-encode response output (HttpUtility.HtmlEncode / Razor auto-encoding); never echo request data raw.",
+		exts(".cs"),
+		`Response\.(Write|Output\.Write)\s*\(`,
+		`Request\.(QueryString|Form|Headers|Params)`, "", ""),
+
+	// ---------------- Swift ----------------
+	rule("builtin.unsafe-deserialization.swift", "high",
+		"Unsafe deserialization: NSKeyedUnarchiver can instantiate arbitrary classes from untrusted data.",
+		"Use Codable + JSONDecoder with a strict allowlist and validate the data source.",
+		exts(".swift"),
+		`NSKeyedUnarchiver\.(unarchiveTopLevelObjectWithData|unarchiveObjectWithData|unarchivedObjectOfClass)`, "", "", ""),
+	rule("builtin.weak-crypto.swift", "medium",
+		"Weak cryptography: MD5/SHA-1 are cryptographically broken.",
+		"Use CryptoKit SHA256+ or CommonCrypto with a modern algorithm.",
+		exts(".swift"),
+		`(?i)\b(MD5|SHA1|Insecure\.(md5|sha1))`, "", "", ""),
+
+	// ---------------- HTML / templates ----------------
+	rule("builtin.xss.html-inline", "medium",
+		"Inline event handler or javascript: URL — a common XSS sink when it reflects untrusted data.",
+		"Avoid inline handlers; use addEventListener with sanitized values and a CSP without 'unsafe-inline'.",
+		exts(".html", ".htm", ".jsp", ".cshtml", ".erb", ".twig"),
+		`(?i)\son[a-z]+\s*=|(?i)href\s*=\s*["']?\s*javascript:`, "", "", ""),
+
 	// ---------------- Shell ----------------
 	rule("builtin.command-injection.shell", "high",
 		"Command injection: eval is used on a string that references shell variables.",
@@ -324,6 +370,35 @@ var builtinRules = []builtinRule{
 		"Prefer COPY from a local build context or curl with checksum verification; never ADD remote URLs.",
 		nil,
 		`^\s*ADD\s+https?://`, "", "", ""),
+	rule("builtin.docker-privileged", "high",
+		"Container runs with --privileged (or privileged: true), disabling most kernel isolation.",
+		"Remove --privileged and grant only the Linux capabilities the process actually needs.",
+		nil,
+		`(?i)--privileged|privileged\s*[:=]\s*(true|yes|1)`, "", "", ""),
+	rule("builtin.docker-remote-script", "medium",
+		"Dockerfile RUN downloads and pipes a remote script straight into a shell, executing unverified code.",
+		"Pin the script URL and verify its checksum before execution; never pipe unverified downloads to sh.",
+		nil,
+		`(?i)^\s*RUN\b[^\n]*(curl|wget)\b[^\n]*\|\s*(sh|bash)\b`, "", "", ""),
+
+	// ---------------- Terraform / IaC ----------------
+	rule("builtin.terraform-open-ingress", "high",
+		"Open ingress: a CIDR block allows the whole internet (0.0.0.0/0) into a resource.",
+		"Narrow the CIDR to the networks that actually need access; never use 0.0.0.0/0 on ingress rules.",
+		exts(".tf"),
+		`(?i)cidr_blocks?\s*=\s*\[?["']?0\.0\.0\.0/0`, "", "", ""),
+	rule("builtin.terraform-s3-public", "medium",
+		"S3 bucket is configured for public reads (acl = public-read / public_access_block disabled).",
+		"Remove public ACLs and keep the public access block enabled unless the bucket is intentionally public.",
+		exts(".tf"),
+		`(?i)acl\s*=\s*["']public-read["']|block_public_acls\s*=\s*false`, "", "", ""),
+
+	// ---------------- Kubernetes / YAML ----------------
+	rule("builtin.k8s-privileged", "high",
+		"Workload runs privileged, with hostNetwork, or with privilege escalation enabled — weak node isolation.",
+		"Use restricted security contexts (no privileged, no hostNetwork, allowPrivilegeEscalation: false).",
+		exts(".yaml", ".yml"),
+		`(?i)(privileged\s*:\s*true|hostNetwork\s*:\s*true|allowPrivilegeEscalation\s*:\s*true)`, "", "", ""),
 }
 
 // skippedDirs are never descended into during the scan.
@@ -340,6 +415,7 @@ var textExts = exts(
 	".php", ".rb", ".c", ".cpp", ".cc", ".h", ".hpp", ".cs", ".swift", ".scala",
 	".sh", ".bash", ".zsh", ".lua", ".r", ".m", ".vue", ".svelte", ".sql", ".ps1", ".pl",
 	".json", ".yaml", ".yml", ".toml", ".ini", ".properties", ".xml", ".conf", ".cfg",
+	".tf", ".hcl", ".dockerfile",
 	".txt", ".md", ".html", ".htm", ".jsp", ".cshtml", ".erb", ".twig",
 )
 
@@ -400,7 +476,10 @@ func (b *BuiltinRunner) Run(projectPath string, status *ToolStatusCollector) []m
 // scanFile applies the language and secret rules to one source file.
 func (b *BuiltinRunner) scanFile(projectPath, path string, findings *[]models.SecurityFinding, counts map[string]int, deadline time.Time, maxFindings int) {
 	name := strings.ToLower(filepath.Base(path))
-	if !textExts[strings.ToLower(filepath.Ext(path))] && !textNames[name] {
+	ext := strings.ToLower(filepath.Ext(path))
+	// Anything that looks like an environment file (*.env, prod.env, ...) is
+	// scanned for secrets even though it has no source extension.
+	if !textExts[ext] && !textNames[name] && !strings.HasSuffix(name, ".env") {
 		return
 	}
 
@@ -489,8 +568,14 @@ var namedSecrets = []namedSecret{
 	{regexp.MustCompile(`(?i)\baws[_-]?secret[_-]?access[_-]?key\s*[=:]\s*["']?[A-Za-z0-9/+=]{20,}`), "high", "AWS secret access key hardcoded in source"},
 	{regexp.MustCompile(`\bghp_[0-9A-Za-z]{36}\b|\bgithub_pat_[0-9A-Za-z_]{20,}\b`), "high", "GitHub personal access token hardcoded in source"},
 	{regexp.MustCompile(`\bAIza[0-9A-Za-z_\-]{35}\b`), "high", "Google API key hardcoded in source"},
+	{regexp.MustCompile(`\bGOCSPX-[0-9A-Za-z_\-]{20,}\b`), "high", "Google OAuth client secret hardcoded in source"},
 	{regexp.MustCompile(`\bxox[baprs]-[0-9A-Za-z\-]{10,}\b`), "high", "Slack token hardcoded in source"},
 	{regexp.MustCompile(`\b(?:sk|pk)[_-](?:test|live)[_-][0-9A-Za-z]{16,}\b`), "high", "Stripe API key hardcoded in source"},
+	{regexp.MustCompile(`\bsk-(proj|ant|svc)-[A-Za-z0-9_\-]{20,}\b`), "high", "OpenAI/Anthropic API key hardcoded in source"},
+	{regexp.MustCompile(`\bhf_[A-Za-z0-9]{20,}\b`), "high", "Hugging Face access token hardcoded in source"},
+	{regexp.MustCompile(`\bSG\.[A-Za-z0-9_\-]{16,}\b`), "high", "SendGrid API key hardcoded in source"},
+	{regexp.MustCompile(`\b[0-9]{8,10}:[A-Za-z0-9_\-]{35}\b`), "high", "Telegram bot token hardcoded in source"},
+	{regexp.MustCompile(`(?i)//registry\.npmjs\.org/:_authToken\s*=\s*[A-Za-z0-9_\-]{20,}`), "high", "npm registry auth token hardcoded in source"},
 	{regexp.MustCompile(`-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----`), "high", "Private key material embedded in source"},
 	{regexp.MustCompile(`(?i)\b(postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|redis|amqp|mssql)://[^:\s/@]+:[^@\s/]+@`), "high", "Database connection string embeds credentials"},
 	{regexp.MustCompile(`\beyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\b`), "medium", "JWT token (potentially valid credential) hardcoded in source"},

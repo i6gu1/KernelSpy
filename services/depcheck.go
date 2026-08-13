@@ -61,9 +61,9 @@ func (d *DependencyCheckRunner) Run(projectPath string, status *ToolStatusCollec
 	// zip; the dependency-check wrapper in bin/ also works. Resolve whichever
 	// is present.
 	name := "dependency-check.sh"
-	if findTool(name) == "" {
+	if !toolAvailable(name) {
 		name = "dependency-check"
-		if findTool(name) == "" {
+		if !toolAvailable(name) {
 			status.Record(&ToolOutcome{
 				Tool:   "dependency-check",
 				Status: statusMissing,

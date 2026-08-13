@@ -50,19 +50,20 @@ const defaultESLintConfig = `{
 }
 `
 
-// ensureConfig writes a default .eslintrc.json into the project directory when
-// the project has no ESLint config, so the security plugins are actually used.
-// Projects that configure ESLint via a .eslintrc* / eslint.config.* file or the
-// "eslintConfig" field of package.json are left untouched (an injected
-// .eslintrc.json would otherwise take precedence and override their config).
-func ensureESLintConfig(projectPath string) {
+// ensureESLintConfig writes a default .eslintrc.json into the project directory
+// when the project has no ESLint config, so the security plugins are actually
+// used, and reports whether the config was injected. Projects that configure
+// ESLint via a .eslintrc* / eslint.config.* file or the "eslintConfig" field of
+// package.json are left untouched (an injected .eslintrc.json would otherwise
+// take precedence and override their config) and false is returned.
+func ensureESLintConfig(projectPath string) bool {
 	existing := []string{
 		".eslintrc", ".eslintrc.json", ".eslintrc.js", ".eslintrc.cjs",
 		"eslint.config.js", "eslint.config.mjs", "eslint.config.cjs",
 	}
 	for _, name := range existing {
 		if _, err := os.Stat(filepath.Join(projectPath, name)); err == nil {
-			return
+			return false
 		}
 	}
 	if data, err := os.ReadFile(filepath.Join(projectPath, "package.json")); err == nil {
@@ -70,10 +71,11 @@ func ensureESLintConfig(projectPath string) {
 			ESLintConfig json.RawMessage `json:"eslintConfig"`
 		}
 		if json.Unmarshal(data, &pkg) == nil && len(pkg.ESLintConfig) > 0 && string(pkg.ESLintConfig) != "null" {
-			return
+			return false
 		}
 	}
 	os.WriteFile(filepath.Join(projectPath, ".eslintrc.json"), []byte(defaultESLintConfig), 0o644)
+	return true
 }
 
 func (e *ESLintRunner) Run(projectPath string, status *ToolStatusCollector) ([]models.SecurityFinding, []models.QualityFinding, models.QualityMetrics) {
@@ -92,10 +94,15 @@ func (e *ESLintRunner) Run(projectPath string, status *ToolStatusCollector) ([]m
 	// plugins resolve from that prefix even though the project dir has no
 	// node_modules — without it a globally-installed plugin set can be
 	// invisible to eslint ("couldn't find the plugin" errors).
-	ensureESLintConfig(projectPath)
+	injectedConfig := ensureESLintConfig(projectPath)
 	args := []string{"--format", "json", "--quiet"}
-	if prefix := eslintPrefix(); prefix != "" {
-		args = append(args, "--resolve-plugins-relative-to", prefix)
+	// Only pin plugin resolution to the global prefix when we injected the
+	// default config: a project with its own ESLint config resolves its own
+	// (possibly local) plugins and must not be redirected to /opt/eslint.
+	if injectedConfig {
+		if prefix := eslintPrefix(); prefix != "" {
+			args = append(args, "--resolve-plugins-relative-to", prefix)
+		}
 	}
 	args = append(args, ".")
 	out, outcome := runToolInDir(projectPath, "eslint", args...)

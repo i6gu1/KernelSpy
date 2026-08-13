@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"black-hat/models"
 )
@@ -48,18 +49,26 @@ type semgrepOutput struct {
 func (s *SemgrepRunner) Run(projectPath string, status *ToolStatusCollector) []models.SecurityFinding {
 	// Default to the p/security-audit ruleset: it is the high-signal security
 	// pack and, unlike --config=auto, it works with metrics disabled (auto
-	// refuses to run when SEMGREP_SEND_METRICS=off/--metrics=off).
-	// Point SEMGREP_CONFIG at a local rules directory for fully-offline runs.
+	// refuses to run when SEMGREP_SEND_METRICS=off/--metrics=off). Set
+	// SEMGREP_CONFIG=auto for the full auto rule set, or point it at a local
+	// rules directory for fully-offline runs.
 	config := os.Getenv("SEMGREP_CONFIG")
 	if config == "" {
 		config = "p/security-audit"
 	}
 
-	out, outcome := runToolEnv("", []string{"SEMGREP_SEND_METRICS=off"}, toolTimeout, "semgrep",
-		"--config="+config, "--json", "--quiet",
-		"--metrics=off", "--disable-version-check",
-		"--timeout=30", "--jobs=2",
-		projectPath)
+	// --config=auto (and p/... registry packs) require metrics consent; only
+	// the auto config is told about metrics handling explicitly so it can run.
+	args := []string{"--config=" + config, "--json", "--quiet",
+		"--disable-version-check", "--timeout=30", "--jobs=2"}
+	var env []string
+	if !strings.Contains(config, "auto") {
+		args = append(args, "--metrics=off")
+		env = append(env, "SEMGREP_SEND_METRICS=off")
+	}
+	args = append(args, projectPath)
+
+	out, outcome := runToolEnv("", env, toolTimeout, "semgrep", args...)
 	defer func() { status.Record(outcome) }()
 
 	if outcome.Status != statusSuccess || len(out) == 0 {

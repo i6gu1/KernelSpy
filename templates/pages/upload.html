@@ -48,6 +48,11 @@
 <script>
 function uploadHandler() {
     return {
+        // Files above this size use the direct-to-storage path (the platform
+        // limit for a single request is 4.5 MB; the 3 MB threshold leaves
+        // comfortable headroom for the multipart overhead).
+        largeFileThreshold: 3 * 1024 * 1024,
+
         isDragging: false,
         isUploading: false,
         progress: 0,
@@ -80,44 +85,156 @@ function uploadHandler() {
             this.progress = 0;
             this.statusMessage = i18n.t('analysis.preparing');
             
-            const formData = new FormData();
-            formData.append('project', file);
-            
             try {
-                this.progress = 30;
-                this.statusMessage = i18n.t('analysis.extracting');
-                
-                const response = await fetch('/api/upload', {
-                    method: 'POST',
-                    body: formData
-                });
-                
-                const data = await response.json();
-                
-                if (data.error) {
-                    this.error = data.error;
-                    this.isUploading = false;
-                    return;
+                if (file.size > this.largeFileThreshold) {
+                    await this.uploadLargeFile(file);
+                } else {
+                    await this.uploadDirect(file);
                 }
-                
-                this.progress = 60;
-                this.statusMessage = i18n.t('analysis.running');
-                
-                const analysisId = data.analysis_id;
-                
-                // The backend now analyzes synchronously, so by the time this
-                // response arrives the report is complete. Jump straight to the
-                // results page instead of the polling page, whose background
-                // goroutine approach never finished on the serverless runtime.
-                this.progress = 90;
-                this.statusMessage = i18n.t('analysis.collecting');
-                
-                window.location.href = '/results/' + analysisId;
-                
             } catch (err) {
+                console.error('Upload failed:', err);
                 this.error = i18n.t('errors.uploadFailed');
                 this.isUploading = false;
             }
+        },
+        
+        // Classic path: multipart POST straight to the backend. Works for any
+        // size on container hosts (Render, VPS, ...) and up to the platform
+        // limit on Vercel.
+        async uploadDirect(file) {
+            this.progress = 30;
+            this.statusMessage = i18n.t('analysis.extracting');
+            
+            const formData = new FormData();
+            formData.append('project', file);
+            
+            const response = await fetch('/api/upload', {
+                method: 'POST',
+                body: formData
+            });
+            
+            const data = await this.parseResponse(response);
+            if (!data) return;
+            
+            if (data.error) {
+                this.error = data.error;
+                this.isUploading = false;
+                return;
+            }
+            
+            await this.redirectToResults(data.analysis_id);
+        },
+        
+        // Large-file path: the browser PUTs the archive straight to the
+        // storage provider (Vercel Blob), which is not a function and has no
+        // 4.5 MB request-body limit. The backend only ever handles small JSON.
+        async uploadLargeFile(file) {
+            this.progress = 10;
+            this.statusMessage = i18n.t('analysis.preparing');
+            
+            // 1. Ask the backend for a short-lived client upload token.
+            const tokenResponse = await fetch('/api/upload/token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filename: file.name })
+            });
+            const tokenData = await this.parseResponse(tokenResponse);
+            if (!tokenData) return;
+            
+            if (tokenData.error) {
+                this.error = tokenData.error;
+                this.isUploading = false;
+                return;
+            }
+            
+            if (!tokenData.enabled) {
+                // This deployment has no large-file storage configured; the
+                // direct path would be rejected by the platform for this size.
+                this.error = i18n.t('errors.uploadTooLarge');
+                this.isUploading = false;
+                return;
+            }
+            
+            // 2. PUT the file directly to the storage provider.
+            this.progress = 40;
+            this.statusMessage = i18n.t('analysis.extracting');
+            
+            const headers = {
+                'authorization': 'Bearer ' + tokenData.token,
+                'x-vercel-blob-store-id': tokenData.store_id,
+                'x-vercel-blob-access': tokenData.access,
+                'x-api-blob-request-id': tokenData.store_id + ':' + Date.now() + ':' + Math.random().toString(16).slice(2),
+                'x-api-blob-request-attempt': '0',
+                'x-api-version': String(tokenData.api_version)
+            };
+            if (file.type) headers['x-content-type'] = file.type;
+            
+            const putResponse = await fetch(tokenData.upload_url, {
+                method: 'PUT',
+                body: file,
+                headers: headers
+            });
+            if (!putResponse.ok) {
+                this.error = i18n.t('errors.uploadFailed');
+                this.isUploading = false;
+                return;
+            }
+            
+            let blobUrl = tokenData.blob_url;
+            try {
+                const putData = await putResponse.json();
+                if (putData && putData.url) blobUrl = putData.url;
+            } catch (e) { /* no JSON body — use the deterministic url */ }
+            
+            // 3. Tell the backend the upload is complete; it downloads the
+            // file server-side and runs the analysis.
+            this.progress = 60;
+            this.statusMessage = i18n.t('analysis.running');
+            
+            const completeResponse = await fetch('/api/upload/complete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ blobUrl: blobUrl })
+            });
+            const completeData = await this.parseResponse(completeResponse);
+            if (!completeData) return;
+            
+            if (completeData.error) {
+                this.error = completeData.error;
+                this.isUploading = false;
+                return;
+            }
+            
+            await this.redirectToResults(completeData.analysis_id);
+        },
+        
+        async redirectToResults(analysisId) {
+            // The backend analyzes synchronously, so by the time this response
+            // arrives the report is complete. Jump straight to the results
+            // page instead of the polling page, whose background goroutine
+            // approach never finished on the serverless runtime.
+            this.progress = 90;
+            this.statusMessage = i18n.t('analysis.collecting');
+            window.location.href = '/results/' + analysisId;
+        },
+        
+        // Reads the JSON body and turns non-JSON failures (e.g. a platform
+        // 413 error page) into a clear, translatable message.
+        async parseResponse(response) {
+            let data = null;
+            try {
+                data = await response.json();
+            } catch (e) {
+                data = null;
+            }
+            if (!response.ok && !data) {
+                this.error = response.status === 413
+                    ? i18n.t('errors.uploadTooLarge')
+                    : i18n.t('errors.uploadFailed');
+                this.isUploading = false;
+                return null;
+            }
+            return data;
         }
     };
 }
