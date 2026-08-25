@@ -80,6 +80,35 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
 
+// KernelSpyDesktop: bridge for the desktop app's native folder picker. The
+// picker and the in-place scanner live behind HTTP endpoints served by the
+// local engine, so this works in the WebView2 window and in a normal browser
+// pointed at the local port alike.
+if (window.KERNELSPY_DESKTOP) {
+    window.KernelSpyDesktop = {
+        async scanFolder() {
+            try {
+                const pickRes = await fetch('/api/desktop/pick-folder', { method: 'POST' });
+                const pick = await pickRes.json();
+                if (pick.error || pick.cancelled || !pick.path) return;
+
+                const scanRes = await fetch('/api/desktop/analyze-folder', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: pick.path })
+                });
+                const scan = await scanRes.json();
+                if (scan.error) { alert(scan.error); return; }
+
+                window.location.href = '/analysis/' + scan.analysis_id;
+            } catch (err) {
+                console.error('Local folder scan failed:', err);
+                alert('Failed to start the local scan.');
+            }
+        }
+    };
+}
+
 document.addEventListener('alpine:init', () => {
     Alpine.data('languageSwitcher', () => ({
         isOpen: false,

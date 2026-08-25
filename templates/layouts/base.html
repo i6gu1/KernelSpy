@@ -73,10 +73,13 @@
     {{if eq .Dir "rtl"}}
     <link rel="stylesheet" href="/static/css/rtl.css">
     {{end}}
+    {{if .Desktop}}
+    <link rel="stylesheet" href="/static/css/desktop.css">
+    {{end}}
     <script defer src="/static/js/alpine.js"></script>
     <script src="/static/js/app.js"></script>
 </head>
-<body>
+<body{{if .Desktop}} class="desktop-app"{{end}}>
     {{template "header.html" .}}
 
     <main>
@@ -86,3 +89,6 @@
     {{template "footer.html" .}}
 </body>
 </html>
+<script>
+{{if .Desktop}}window.KERNELSPY_DESKTOP = true;{{end}}
+</script>

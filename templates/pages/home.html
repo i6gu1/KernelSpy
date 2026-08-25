@@ -16,4 +16,53 @@
         </div>
     </div>
 </section>
+
+{{if .Desktop}}
+<section class="section gallery-section">
+    <div class="container">
+        <h2 class="section-title">Local Security Intelligence</h2>
+        <p class="section-description gallery-intro">Every scan runs entirely on your machine — powered by 20+ concurrent analyzers with zero uploads, zero servers, zero tracking.</p>
+        <div class="gallery-grid">
+            <figure class="gallery-item animate-fade-in-up">
+                <img src="/static/ui/pic/desktop/photo-01.jpg" alt="KernelSpy scan visualization" class="duotone-green" loading="lazy" decoding="async" />
+            </figure>
+            <figure class="gallery-item animate-fade-in-up">
+                <img src="/static/ui/pic/desktop/photo-02.jpg" alt="KernelSpy threat dashboard" class="duotone-green" loading="lazy" decoding="async" />
+            </figure>
+            <figure class="gallery-item animate-fade-in-up">
+                <img src="/static/ui/pic/desktop/photo-03.jpg" alt="KernelSpy analysis pipeline" class="duotone-green" loading="lazy" decoding="async" />
+            </figure>
+            <figure class="gallery-item animate-fade-in-up">
+                <img src="/static/ui/pic/desktop/photo-04.jpg" alt="KernelSpy vulnerability report" class="duotone-green" loading="lazy" decoding="async" />
+            </figure>
+            <figure class="gallery-item animate-fade-in-up">
+                <img src="/static/ui/pic/desktop/photo-06.jpg" alt="KernelSpy local engine" class="duotone-green" loading="lazy" decoding="async" />
+            </figure>
+            <figure class="gallery-item animate-fade-in-up">
+                <img src="/static/ui/pic/desktop/photo-07.jpg" alt="KernelSpy security modules" class="duotone-green" loading="lazy" decoding="async" />
+            </figure>
+        </div>
+    </div>
+</section>
+
+<section class="section local-mode-section">
+    <div class="container">
+        <div class="local-mode-card card animate-fade-in-up">
+            <div class="local-mode-art">
+                <img src="/static/ui/pic/desktop/photo-08.jpg" alt="" class="duotone-green" loading="lazy" decoding="async" />
+            </div>
+            <div class="local-mode-copy">
+                <h2>Why local analysis?</h2>
+                <ul class="local-points">
+                    <li><span class="local-check">✓</span> Your source code never leaves your computer.</li>
+                    <li><span class="local-check">✓</span> No upload limits — scan projects of any size.</li>
+                    <li><span class="local-check">✓</span> No queues: every analyzer runs in parallel, instantly.</li>
+                    <li><span class="local-check">✓</span> Detect secrets, vulnerabilities and code quality issues in one pass.</li>
+                </ul>
+                <button class="btn-primary btn-lg" onclick="window.KernelSpyDesktop && KernelSpyDesktop.scanFolder()">Scan a Local Folder</button>
+            </div>
+        </div>
+    </div>
+</section>
+{{end}}
 {{end}}

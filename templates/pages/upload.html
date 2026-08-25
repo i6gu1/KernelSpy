@@ -6,6 +6,24 @@
         <div class="upload-container animate-fade-in-up">
             <h1 class="section-title" data-i18n="upload.title">Upload Project</h1>
             
+            {{if .Desktop}}
+            <div class="folder-scan-card card" x-data="folderScanner()">
+                <div class="folder-scan-art">
+                    <img src="/static/ui/pic/desktop/photo-09.jpg" alt="" class="duotone-green" />
+                </div>
+                <div class="folder-scan-body">
+                    <h2>Scan a Local Folder</h2>
+                    <p>Pick any directory on this device — KernelSpy scans it in place with 20+ analyzers. Nothing is uploaded, nothing leaves your machine.</p>
+                    <button class="btn-primary" @click="pickAndScan()" :disabled="busy">
+                        <span x-show="!busy">Choose Folder…</span>
+                        <span x-show="busy">Scanning…</span>
+                    </button>
+                    <div class="folder-error" x-show="error" x-text="error"></div>
+                </div>
+            </div>
+            <div class="folder-divider"><span>— or —</span></div>
+            {{end}}
+            
             <div class="upload-zone" id="uploadZone" 
                  x-data="uploadHandler()"
                  @dragover.prevent="isDragging = true"
@@ -46,6 +64,44 @@
 </section>
 
 <script>
+{{if .Desktop}}
+function folderScanner() {
+    return {
+        busy: false,
+        error: '',
+
+        async pickAndScan() {
+            this.busy = true;
+            this.error = '';
+            try {
+                // 1. Native Windows folder picker (desktop bridge).
+                const pickRes = await fetch('/api/desktop/pick-folder', { method: 'POST' });
+                const pick = await pickRes.json();
+                if (pick.error) { this.error = pick.error; return; }
+                if (pick.cancelled || !pick.path) return;
+
+                // 2. Start the local in-place scan.
+                const scanRes = await fetch('/api/desktop/analyze-folder', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: pick.path })
+                });
+                const scan = await scanRes.json();
+                if (scan.error) { this.error = scan.error; return; }
+
+                // 3. Show the live analysis progress page (it polls until done).
+                window.location.href = '/analysis/' + scan.analysis_id;
+            } catch (err) {
+                console.error('Folder scan failed:', err);
+                this.error = 'Failed to start the scan.';
+            } finally {
+                this.busy = false;
+            }
+        }
+    };
+}
+{{end}}
+
 function uploadHandler() {
     return {
         // Files above this size use the direct-to-storage path (the platform
@@ -231,6 +287,11 @@ function uploadHandler() {
                 this.error = response.status === 413
                     ? i18n.t('errors.uploadTooLarge')
                     : i18n.t('errors.uploadFailed');
+                this.isUploading = false;
+                return null;
+            }
+            if (response.ok && !data) {
+                this.error = i18n.t('errors.uploadFailed');
                 this.isUploading = false;
                 return null;
             }

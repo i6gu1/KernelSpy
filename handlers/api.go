@@ -108,6 +108,9 @@ func (u *UploadHandler) Upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	lang := middleware.LangFrom(r)
+	translate := func(key string) string { return i18n.GetInstance().Translate(lang, key) }
+
 	// Give the body an effectively-unlimited ceiling; only the 5 GB safety net
 	// guards the serverless worker from an absurd single request.
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
@@ -117,15 +120,14 @@ func (u *UploadHandler) Upload(w http.ResponseWriter, r *http.Request) {
 		// 413 and message instead of a generic upload error.
 		var maxErr *http.MaxBytesError
 		if errors.As(err, &maxErr) {
-			lang := middleware.LangFrom(r)
 			middleware.WriteJSON(w, http.StatusRequestEntityTooLarge, map[string]interface{}{
-				"error":     i18n.GetInstance().Translate(lang, "errors.uploadTooLarge"),
+				"error":     translate("errors.uploadTooLarge"),
 				"too_large": true,
 				"max_bytes": maxErr.Limit,
 			})
 			return
 		}
-		middleware.WriteJSON(w, http.StatusBadRequest, map[string]interface{}{"error": "Upload failed"})
+		middleware.WriteJSON(w, http.StatusBadRequest, map[string]interface{}{"error": translate("errors.uploadFailed")})
 		return
 	}
 	// Remove the multipart temp files (file parts larger than the memory
@@ -137,13 +139,13 @@ func (u *UploadHandler) Upload(w http.ResponseWriter, r *http.Request) {
 
 	file, header, err := r.FormFile("project")
 	if err != nil {
-		middleware.WriteJSON(w, http.StatusBadRequest, map[string]interface{}{"error": "No file uploaded"})
+		middleware.WriteJSON(w, http.StatusBadRequest, map[string]interface{}{"error": translate("errors.noFileUploaded")})
 		return
 	}
 	defer file.Close()
 
 	if !strings.HasSuffix(strings.ToLower(header.Filename), ".zip") {
-		middleware.WriteJSON(w, http.StatusBadRequest, map[string]interface{}{"error": "Unsupported archive. Please upload a ZIP file."})
+		middleware.WriteJSON(w, http.StatusBadRequest, map[string]interface{}{"error": translate("errors.unsupportedArchive")})
 		return
 	}
 
@@ -167,18 +169,18 @@ func (u *UploadHandler) Upload(w http.ResponseWriter, r *http.Request) {
 
 	out, err := os.Create(savePath)
 	if err != nil {
-		middleware.WriteJSON(w, http.StatusInternalServerError, map[string]interface{}{"error": "Failed to save file"})
+		middleware.WriteJSON(w, http.StatusInternalServerError, map[string]interface{}{"error": translate("errors.failedToSave")})
 		return
 	}
 	if _, err := io.Copy(out, file); err != nil {
 		out.Close()
 		os.Remove(savePath)
-		middleware.WriteJSON(w, http.StatusInternalServerError, map[string]interface{}{"error": "Failed to save file"})
+		middleware.WriteJSON(w, http.StatusInternalServerError, map[string]interface{}{"error": translate("errors.failedToSave")})
 		return
 	}
 	out.Close()
 
-	u.analyzeArchive(w, savePath)
+	u.analyzeArchive(w, savePath, lang)
 }
 
 // analyzeArchive is the shared tail of both upload paths (direct multipart and
@@ -186,7 +188,8 @@ func (u *UploadHandler) Upload(w http.ResponseWriter, r *http.Request) {
 // /tmp, runs the analysis synchronously (bounded by ANALYSIS_TIMEOUT so a big
 // project can never blow a serverless request window), cleans up and answers
 // with the analysis id. The order slot is already reserved by the caller.
-func (u *UploadHandler) analyzeArchive(w http.ResponseWriter, zipPath string) {
+func (u *UploadHandler) analyzeArchive(w http.ResponseWriter, zipPath string, lang string) {
+	translate := func(key string) string { return i18n.GetInstance().Translate(lang, key) }
 	tmpRoot := os.TempDir()
 	extractDir := filepath.Join(tmpRoot, "blackhat-projects")
 	os.MkdirAll(extractDir, 0o755)
@@ -194,7 +197,7 @@ func (u *UploadHandler) analyzeArchive(w http.ResponseWriter, zipPath string) {
 	projectDir := filepath.Join(extractDir, fmt.Sprintf("project_%d", time.Now().UnixNano()))
 	if err := os.MkdirAll(projectDir, 0o755); err != nil {
 		os.Remove(zipPath)
-		middleware.WriteJSON(w, http.StatusInternalServerError, map[string]interface{}{"error": "Failed to prepare workspace"})
+		middleware.WriteJSON(w, http.StatusInternalServerError, map[string]interface{}{"error": translate("errors.failedToPrepareWorkspace")})
 		return
 	}
 
@@ -202,7 +205,7 @@ func (u *UploadHandler) analyzeArchive(w http.ResponseWriter, zipPath string) {
 	if err := extractor.ExtractZIP(zipPath, projectDir); err != nil {
 		os.Remove(zipPath)
 		os.RemoveAll(projectDir)
-		middleware.WriteJSON(w, http.StatusBadRequest, map[string]interface{}{"error": "Failed to extract archive"})
+		middleware.WriteJSON(w, http.StatusBadRequest, map[string]interface{}{"error": translate("errors.failedToExtract")})
 		return
 	}
 
@@ -343,7 +346,7 @@ func (u *UploadHandler) CompleteUpload(w http.ResponseWriter, r *http.Request) {
 	// (best-effort; a failed delete is only a storage-leak risk, not a bug).
 	_ = store.Delete(req.BlobURL)
 
-	u.analyzeArchive(w, savePath)
+	u.analyzeArchive(w, savePath, lang)
 }
 
 func sanitizeFilename(name string) string {
@@ -428,6 +431,58 @@ func analysisDeadline() time.Duration {
 		}
 	}
 	return 600 * time.Second
+}
+
+// RunFolderAnalysis scans a local directory in place — the desktop-app path.
+// Unlike the upload flow there is nothing to extract and, critically, nothing
+// to delete afterwards: the user's project stays untouched on disk. The
+// analysis runs in a background goroutine (a desktop process has no
+// serverless request window to honor) and the result lands in the same
+// in-memory store, so the existing /analysis/:id poller and /results/:id page
+// work unchanged. The caller receives the analysis id immediately.
+func RunFolderAnalysis(projectPath string) (int, error) {
+	info, err := os.Stat(projectPath)
+	if err != nil {
+		return 0, err
+	}
+	if !info.IsDir() {
+		return 0, fmt.Errorf("path is not a directory: %s", projectPath)
+	}
+
+	projectID := int(analysisID.Add(1))
+	analysesMu.Lock()
+	pending[projectID] = struct{}{}
+	analysesMu.Unlock()
+
+	go func() {
+		defer func() {
+			analysesMu.Lock()
+			delete(pending, projectID)
+			analysesMu.Unlock()
+		}()
+
+		analyzer := services.NewAnalyzer()
+		start := time.Now()
+		result, err := analyzer.AnalyzeProject(projectPath)
+		duration := time.Since(start)
+
+		if err != nil {
+			analysesMu.Lock()
+			analyses[projectID] = &models.AnalysisResult{
+				FilesScanned:    0,
+				DurationSeconds: int(duration.Seconds()),
+				Error:           err.Error(),
+			}
+			analysesMu.Unlock()
+			return
+		}
+		result.DurationSeconds = int(duration.Seconds())
+		analysesMu.Lock()
+		analyses[projectID] = result
+		analysesMu.Unlock()
+	}()
+
+	return projectID, nil
 }
 
 // lookupResult retrieves an analysis result by id.

@@ -74,6 +74,13 @@ func RenderTemplate(w http.ResponseWriter, r *http.Request, templateName string,
 	data["Dir"] = dir
 	data["CurrentPage"] = templateName
 	data["SiteURL"] = siteURL()
+	// Desktop mode: the Windows app (cmd/desktop) sets KERNELSPY_DESKTOP=1
+	// before serving, so templates can offer desktop-only flows (native
+	// folder picker, in-place local scanning) and load the neon-green theme.
+	data["Desktop"] = os.Getenv("KERNELSPY_DESKTOP") != ""
+	// Base directory for desktop-only artwork: the design photos the app is
+	// built around live under /static/ui/pic/desktop/.
+	data["DesktopArt"] = "/static/ui/pic/desktop"
 	// Clean the request path so canonical tags never carry "..", "//" or
 	// encoded noise (the raw URL.Path is decoded and uncleaned).
 	data["Canonical"] = siteURL() + path.Clean(r.URL.Path)

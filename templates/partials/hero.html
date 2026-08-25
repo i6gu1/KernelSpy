@@ -2,17 +2,31 @@
 <section class="hero">
     <div class="hero-bg">
         <div class="hero-grid"></div>
+        {{if .Desktop}}
+        <img src="/static/ui/pic/desktop/photo-01.jpg" alt="" aria-hidden="true" class="hero-bg-img duotone-green" />
+        {{else}}
         <img src="/static/ui/pic/hero-bg.svg" alt="" aria-hidden="true" class="hero-bg-img" />
+        {{end}}
     </div>
     <div class="container hero-content">
         <div class="hero-text animate-fade-in-up">
+            {{if .Desktop}}
+            <div class="hero-eyebrow"><span class="pulse-dot"></span> LOCAL ANALYZER · RUNS ON YOUR DEVICE</div>
+            {{end}}
             <h1 class="hero-title" data-i18n="hero.title">Analyze Your Code. Improve Quality. Detect Risks.</h1>
             <p class="hero-description" data-i18n="hero.description">Upload your project or connect a Git repository to analyze code quality, security issues, dependency vulnerabilities, and project structure using trusted analysis tools.</p>
             <div class="hero-actions">
+                {{if .Desktop}}
+                <button class="btn-primary btn-lg" onclick="window.KernelSpyDesktop && KernelSpyDesktop.scanFolder()" data-i18n="desktop.scanFolder">Scan Local Folder</button>
+                <a href="/upload" class="btn-secondary btn-lg">Upload ZIP Archive</a>
+                {{else}}
                 <a href="/upload" class="btn-primary btn-lg" data-i18n="hero.analyzeProject">Analyze Project</a>
                 <button class="btn-secondary btn-lg" data-i18n="hero.connectRepo">Connect Repository</button>
-                <button class="btn-outline btn-lg" data-i18n="hero.viewSample">View Sample Report</button>
+                {{end}}
             </div>
+            {{if .Desktop}}
+            <p class="hero-local-note"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><polyline points="9 12 11 14 15 10"></polyline></svg> 100% offline — your source code never leaves this device.</p>
+            {{end}}
         </div>
         <div class="hero-visual animate-fade-in">
             <div class="hero-showcase">
@@ -21,11 +35,15 @@
                         <span class="code-dot"></span>
                         <span class="code-dot"></span>
                         <span class="code-dot"></span>
-                        <span class="code-title">osdox-tool v2.15</span>
+                        <span class="code-title">kernelspy · local scan</span>
                     </div>
+                    {{if .Desktop}}
+                    <img src="/static/ui/pic/desktop/photo-05.jpg" alt="KernelSpy desktop security analysis" class="hero-img duotone-green" />
+                    {{else}}
                     <img src="/static/ui/pic/terminal.jpg" alt="KernelSpy security analysis terminal" class="hero-img" />
+                    {{end}}
                 </div>
-                <div class="hero-chip hero-chip-ai" data-i18n="hero.badge.ai">AI Engine</div>
+                <div class="hero-chip hero-chip-ai">OFFLINE</div>
                 <div class="hero-chip hero-chip-zero" data-i18n="hero.badge.zero">Zero-Trust</div>
             </div>
         </div>

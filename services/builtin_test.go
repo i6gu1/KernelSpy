@@ -292,6 +292,177 @@ DB_PASSWORD=sup3rSecretPassword123!
 	}
 }
 
+// TestBuiltinCoversRust proves the zero-dependency analyzer catches the classic
+// vulnerability classes in Rust source (command injection via shell -c, SQL
+// injection via format!, weak crypto, unsafe memory ops, path traversal).
+func TestBuiltinCoversRust(t *testing.T) {
+	res := runBuiltin(t, map[string]string{
+		"main.rs": `use std::process::Command;
+use std::fs;
+
+fn run(user_input: &str) {
+    // Command injection: shell -c with format!
+    let out = Command::new("sh").arg("-c").arg(format!("ls {}", user_input)).output().unwrap();
+
+    // SQL injection: format! into a query
+    let conn = rusqlite::Connection::open_in_memory().unwrap();
+    conn.execute(&format!("SELECT * FROM users WHERE id = {}", user_input), []).unwrap();
+
+    // Weak crypto
+    let digest = md5::compute(b"secret");
+
+    // Unsafe memory
+    let x: u64 = unsafe { std::mem::transmute(1.0f64) };
+
+    // Path traversal
+    let data = fs::read_to_string(format!("./files/{}", user_input)).unwrap();
+    let _ = (out, digest, x, data);
+}
+`,
+	})
+
+	for _, rule := range []string{
+		"builtin.command-injection.rust",
+		"builtin.sql-injection.rust",
+		"builtin.weak-crypto.rust",
+		"builtin.unsafe-memory.rust",
+		"builtin.path-traversal.rust",
+	} {
+		if !hasRule(res.SecurityFindings, rule) {
+			t.Errorf("expected rule %q to be reported; got %v", rule, rulesOf(res.SecurityFindings))
+		}
+	}
+}
+
+// TestBuiltinRustCleanCodeNotFlagged guards the Rust rules against false
+// positives: safe Command usage, parameterized queries and plain fs reads must
+// not be reported.
+func TestBuiltinRustCleanCodeNotFlagged(t *testing.T) {
+	res := runBuiltin(t, map[string]string{
+		"clean.rs": `use std::process::Command;
+use std::fs;
+
+fn run(user_input: &str) {
+    // Safe: args passed separately, no shell.
+    let out = Command::new("cat").arg(user_input).output().unwrap();
+
+    // Safe: bound parameter.
+    let conn = rusqlite::Connection::open_in_memory().unwrap();
+    conn.execute("SELECT * FROM users WHERE id = ?1", rusqlite::params![user_input]).unwrap();
+
+    // Safe: fixed path, no dynamic building.
+    let data = fs::read_to_string("./files/config.toml").unwrap();
+    let _ = (out, data);
+}
+`,
+	})
+
+	for _, f := range res.SecurityFindings {
+		if strings.HasPrefix(f.Rule, "builtin.") && strings.HasSuffix(f.Rule, ".rust") {
+			t.Errorf("false positive on clean Rust code: %s at %s:%d", f.Rule, f.FilePath, f.LineNumber)
+		}
+	}
+}
+
+// TestBuiltinExtendedRules covers the extended rule set (SSRF, path traversal,
+// prototype pollution, XXE, Lua, PowerShell, XPath) across languages.
+func TestBuiltinExtendedRules(t *testing.T) {
+	res := runBuiltin(t, map[string]string{
+		"app.js": `const http = require('http');
+// SSRF: fetch to a URL assembled from request data
+fetch('https://api.internal/' + req.query.url);
+// Path traversal: user-controlled path into fs
+fs.readFileSync('/var/data/' + req.params.file);
+// Prototype pollution
+Object.assign(target, { [req.query.key]: req.query.value });
+target["__proto__"][req.body.key] = req.body.value;
+`,
+		"server.py": `import requests, os
+# SSRF
+r = requests.get("http://internal/" + request.args.get("url"))
+# Path traversal
+with open("/srv/files/" + request.args.get("name")) as f:
+    pass
+`,
+		"main.go": `package main
+import (
+    "net/http"
+    "os"
+    "fmt"
+)
+func h(w http.ResponseWriter, r *http.Request) {
+    http.Get("http://internal/" + r.URL.Query().Get("u"))  // SSRF
+    os.ReadFile("/data/" + r.URL.Path)                     // path traversal
+    token := fmt.Sprintf("%d", rand.Intn(100000))          // weak random
+}
+`,
+		"Parser.java": `import javax.xml.parsers.*;
+DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance(); dbf.setFeature("http://apache.org/xml/features/disallow-doctype-decl", false); // XXE
+File f = new File("/www/" + request.getParameter("file"));                     // traversal
+`,
+		"fetch.lua": `os.execute("rm -rf " .. ngx.var.arg_path)  -- command injection
+db:execute("SELECT * FROM users WHERE id = " .. ngx.var.arg_id) -- sql injection
+loadstring("return " .. ngx.var.arg_expr)                       -- code execution
+`,
+		"run.ps1": `Invoke-Expression $inputString`,
+		"query.cs": `var html = client.GetStringAsync("https://internal/" + Request.QueryString["url"]);
+var text = File.ReadAllText("/srv/" + Request.QueryString["f"]);
+var h = MD5.Create();
+`,
+		"select.xml": `let $n := doc("x")/x[user = "'" + $input]
+`,
+		"app.php": `$hash = md5($password);`,
+	})
+
+	for _, rule := range []string{
+		"builtin.ssrf.javascript",
+		"builtin.path-traversal.javascript",
+		"builtin.prototype-pollution.javascript",
+		"builtin.ssrf.python",
+		"builtin.path-traversal.python",
+		"builtin.ssrf.go",
+		"builtin.path-traversal.go",
+		"builtin.weak-random.go",
+		"builtin.xxe.java",
+		"builtin.path-traversal.java",
+		"builtin.command-injection.lua",
+		"builtin.sql-injection.lua",
+		"builtin.code-execution.lua",
+		"builtin.code-execution.powershell",
+		"builtin.ssrf.csharp",
+		"builtin.path-traversal.csharp",
+		"builtin.weak-crypto.csharp",
+		"builtin.weak-crypto.php",
+	} {
+		if !hasRule(res.SecurityFindings, rule) {
+			t.Errorf("expected rule %q to be reported; got %v", rule, rulesOf(res.SecurityFindings))
+		}
+	}
+}
+
+// TestBuiltinExtendedSecrets verifies the added secret patterns fire.
+func TestBuiltinExtendedSecrets(t *testing.T) {
+	res := runBuiltin(t, map[string]string{
+		".env": `GITLAB_TOKEN=glpat-TESTXxYyZzAbCdEfGh000000
+TWILIO_SID=AC1234567890abcdefEXAMPLE123456
+TWILIO_AUTH=SK1234567890abcdefEXAMPLE123456
+AZURE_KEY=AccountKey=1234567890abcdefEXAMPLE1234567890abcdefEXAMPLE1234567890abcdefEXAMPLE1234567890abcdefEXAMPLE
+PRIVATE_KEY="REPLACE_WITH_TEST_ONLY_RSA_KEY_DATA_HERE"
+`,
+	})
+
+	for _, rule := range []string{
+		"builtin.secret.GitLab personal access token hardcoded in source",
+		"builtin.secret.Twilio Account SID hardcoded in source",
+		"builtin.secret.Twilio auth token hardcoded in source",
+		"builtin.secret.Azure Storage account key hardcoded in source",
+	} {
+		if !hasRule(res.SecurityFindings, rule) {
+			t.Errorf("expected rule %q to be reported; got %v", rule, rulesOf(res.SecurityFindings))
+		}
+	}
+}
+
 // TestBuiltinTimeBudgetKeepsScanBounded ensures the scan stops when its time
 // budget is exhausted instead of hanging a serverless request.
 func TestBuiltinTimeBudgetKeepsScanBounded(t *testing.T) {

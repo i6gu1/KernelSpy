@@ -9,6 +9,7 @@
     "hero.analyzeProject": "Analizar proyecto",
     "hero.connectRepo": "Conectar repositorio",
     "hero.viewSample": "Ver informe de ejemplo",
+    "desktop.scanFolder": "Escanear carpeta local",
     "features.title": "Características",
     "features.security.title": "Análisis de seguridad",
     "features.security.description": "Escanear tu proyecto en busca de problemas de seguridad comunes, secretos expuestos y vulnerabilidades conocidas de dependencias.",

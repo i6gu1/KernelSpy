@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"black-hat/config"
@@ -38,12 +39,23 @@ func main() {
 		port = "3000"
 	}
 
+	// WriteTimeout must exceed the analysis deadline so the HTTP response
+	// is never killed while runAnalysis is still executing. The default
+	// analysis deadline is 600 s (10 min); honour the same ANALYSIS_TIMEOUT
+	// env var the handler uses and add a 60 s buffer.
+	writeTimeout := 11 * time.Minute
+	if v := os.Getenv("ANALYSIS_TIMEOUT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			writeTimeout = time.Duration(n+60) * time.Second
+		}
+	}
+
 	srv := &http.Server{
 		Addr:              ":" + port,
 		Handler:           handlers.NewHandler(),
 		ReadHeaderTimeout: 15 * time.Second,
 		ReadTimeout:       5 * time.Minute,
-		WriteTimeout:      5 * time.Minute,
+		WriteTimeout:      writeTimeout,
 		IdleTimeout:       60 * time.Second,
 	}
 

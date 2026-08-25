@@ -9,6 +9,7 @@
     "hero.analyzeProject": "تحليل المشروع",
     "hero.connectRepo": "ربط المستودع",
     "hero.viewSample": "عرض تقرير تجريبي",
+    "desktop.scanFolder": "فحص مجلد محلي",
     "features.title": "المميزات",
     "features.security.title": "تحليل الأمان",
     "features.security.description": "فحص مشروعك بحثاً عن مشاكل الأمان الشائعة، الأسرار المكشوفة، وثغرات التبعيات المعروفة.",
