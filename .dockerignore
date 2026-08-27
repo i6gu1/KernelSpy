@@ -5,4 +5,5 @@ uploads
 .git
 .vercel
 *.exe
+!static/downloads/*.exe
 *.log

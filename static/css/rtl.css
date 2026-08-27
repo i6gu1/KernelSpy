@@ -167,3 +167,23 @@
 [dir="rtl"] .slide-in {
     animation-name: slideInRight;
 }
+
+[dir="rtl"] .download-card {
+    text-align: center;
+}
+
+[dir="rtl"] .download-card .section-title,
+[dir="rtl"] .download-card .section-description {
+    text-align: center;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+[dir="rtl"] .download-actions .btn-primary {
+    flex-direction: row-reverse;
+}
+
+[dir="rtl"] .download-req,
+[dir="rtl"] .download-support {
+    text-align: center;
+}
