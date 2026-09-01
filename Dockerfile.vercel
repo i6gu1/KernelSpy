@@ -55,10 +55,13 @@ ENV SAST_SKIP_CODQL=1 \
     ESLINT_PREFIX=/opt/eslint \
     TRIVY_CACHE_DIR=/opt/trivy-cache \
     TRIVY_DB_REPOSITORY=ghcr.io/aquasecurity/trivy-db \
-    # The whole analysis must fit inside the platform function window
-    # (300 s max on Hobby); the watchdog fires at 280 s so a big project
-    # degrades into a clear timeout result instead of a cut-off request.
-    ANALYSIS_TIMEOUT=280 \
+    # The watchdog bounds how long a single analysis may run. Because the
+    # analysis now runs in the background (the upload reply is immediate and
+    # the report persists to shared storage), it no longer has to fit inside a
+    # request window: 1500 s (25 min) lets big projects complete while keeping
+    # a hard ceiling so a pathological scan cannot pin a worker forever. The
+    # browser poller waits up to 30 minutes, so it always sees the result.
+    ANALYSIS_TIMEOUT=1500 \
     PORT=80
 RUN bash /build.sh || true
 

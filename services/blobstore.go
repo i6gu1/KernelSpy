@@ -3,6 +3,7 @@ package services
 import (
 	"bytes"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -139,8 +140,52 @@ func (b *BlobStore) ClientToken(pathname string) (string, time.Time, error) {
 // disables the random suffix).
 func (b *BlobStore) UploadURL(pathname string) (uploadURL, blobURL string) {
 	uploadURL = b.apiBase + "/?pathname=" + url.QueryEscape(pathname)
-	blobURL = fmt.Sprintf("https://%s.%s.blob.vercel-storage.com/%s", b.storeID, b.access, pathname)
+	blobURL = b.BlobURL(pathname)
 	return uploadURL, blobURL
+}
+
+// BlobURL returns the object URL for a given pathname. Useful when the server
+// itself needs to read back an object it wrote (e.g. persisted analysis
+// results) without re-parsing an upload response.
+func (b *BlobStore) BlobURL(pathname string) string {
+	return fmt.Sprintf("https://%s.%s.blob.vercel-storage.com/%s", b.storeID, b.access, pathname)
+}
+
+// Put writes raw bytes to a pathname from the server. It mints a fresh client
+// token at call time and then PUTs the body with exactly the same headers the
+// browser uses on the direct-to-Blob upload path (the client-upload protocol,
+// verified against the live Blob API in this codebase). Keeping the server on
+// that same protocol means no extra SDK dependency and no second, untested
+// wire format.
+func (b *BlobStore) Put(pathname string, data []byte) error {
+	if !b.Enabled() {
+		return fmt.Errorf("blob store is not configured (BLOB_READ_WRITE_TOKEN missing)")
+	}
+	token, _, err := b.ClientToken(pathname)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest(http.MethodPut, b.apiBase+"/?pathname="+url.QueryEscape(pathname), bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("authorization", "Bearer "+token)
+	req.Header.Set("x-vercel-blob-store-id", b.storeID)
+	req.Header.Set("x-vercel-blob-access", b.access)
+	req.Header.Set("x-api-blob-request-id", fmt.Sprintf("%s:%d:%s", b.storeID, time.Now().UnixMilli(), blobRequestID()))
+	req.Header.Set("x-api-blob-request-attempt", "0")
+	req.Header.Set("x-api-version", b.apiVersion)
+	req.Header.Set("x-content-type", "application/octet-stream")
+
+	resp, err := b.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return fmt.Errorf("blob put failed with status %d", resp.StatusCode)
+	}
+	return nil
 }
 
 // DownloadTo streams the object behind blobURL into destPath and returns the
@@ -237,6 +282,52 @@ func (b *BlobStore) Delete(blobURL string) error {
 		return fmt.Errorf("blob delete failed with status %d", resp.StatusCode)
 	}
 	return nil
+}
+
+// blobRequestID returns a short random hex string used in the
+// x-api-blob-request-id header so concurrent puts to the same store are
+// distinguishable by the Blob API.
+func blobRequestID() string {
+	var buf [4]byte
+	if _, err := rand.Read(buf[:]); err == nil {
+		return hex.EncodeToString(buf[:])
+	}
+	return fmt.Sprintf("%04d", time.Now().UnixNano()%10000)
+}
+
+// DownloadBytes fetches the object behind blobURL fully into memory. The
+// caller must keep the returned bytes small — this is meant for analysis
+// results/state payloads, not user archives.
+func (b *BlobStore) DownloadBytes(blobURL string) ([]byte, error) {
+	parsed, err := url.Parse(blobURL)
+	if err != nil || parsed.Hostname() == "" {
+		return nil, fmt.Errorf("invalid blob url: %q", blobURL)
+	}
+	if parsed.Scheme != "https" || !strings.HasSuffix(parsed.Hostname(), ".blob.vercel-storage.com") {
+		return nil, fmt.Errorf("invalid blob url: %q does not point to Vercel Blob", blobURL)
+	}
+	req, err := http.NewRequest(http.MethodGet, blobURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+b.token)
+
+	resp, err := b.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("blob not found (already deleted?)")
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("blob download failed with status %d", resp.StatusCode)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
 // parseStoreID extracts the store id from a read-write token of the form

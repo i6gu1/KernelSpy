@@ -105,6 +105,8 @@
     "reports.json": "Export as JSON",
     "empty.title": "No analysis available.",
     "empty.description": "Upload a project to begin.",
+    "results.runningTitle": "Still analyzing…",
+    "results.runningDescription": "Your report is being generated. This page will refresh automatically when it is ready.",
     "errors.uploadFailed": "Upload failed.",
     "errors.uploadTooLarge": "The archive is too large for direct upload on this deployment. Large uploads require Vercel Blob to be configured.",
     "errors.largeUploadNotConfigured": "Large-file uploads are not configured on this deployment.",

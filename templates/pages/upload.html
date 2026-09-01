@@ -265,13 +265,13 @@ function uploadHandler() {
         },
         
         async redirectToResults(analysisId) {
-            // The backend analyzes synchronously, so by the time this response
-            // arrives the report is complete. Jump straight to the results
-            // page instead of the polling page, whose background goroutine
-            // approach never finished on the serverless runtime.
+            // Analysis now runs in the background and reports into shared
+            // storage, so the response arrives before the report is ready.
+            // Go to the polling page, which live-updates the progress and
+            // forwards to /results/:id the moment the report is persisted.
             this.progress = 90;
             this.statusMessage = i18n.t('analysis.collecting');
-            window.location.href = '/results/' + analysisId;
+            window.location.href = '/analysis/' + analysisId;
         },
         
         // Reads the JSON body and turns non-JSON failures (e.g. a platform

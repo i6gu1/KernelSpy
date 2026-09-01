@@ -315,6 +315,40 @@
         </div>
         {{end}}
         
+        {{else if .Running}}
+        <div class="empty-state animate-fade-in-up" data-analysis-run-id="{{.AnalysisID}}">
+            <div class="empty-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="spin-icon">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <path d="M12 6v6l4 2"></path>
+                </svg>
+            </div>
+            <h2 data-i18n="results.runningTitle">Still analyzing…</h2>
+            <p data-i18n="results.runningDescription">Your report is being generated. This page will refresh automatically when it is ready.</p>
+        </div>
+        <script>
+        (function () {
+            var el = document.querySelector('[data-analysis-run-id]');
+            if (!el) return;
+            var id = el.getAttribute('data-analysis-run-id');
+            var startedAt = Date.now();
+            var maxWaitMs = 1800000; // 30 minutes
+            var timer = setInterval(async function () {
+                if (Date.now() - startedAt > maxWaitMs) {
+                    clearInterval(timer);
+                    return;
+                }
+                try {
+                    var res = await fetch('/api/analysis/status/' + id);
+                    var data = await res.json();
+                    if (data && data.status === 'completed') {
+                        clearInterval(timer);
+                        window.location.reload();
+                    }
+                } catch (e) { /* transient network error — keep polling */ }
+            }, 3000);
+        })();
+        </script>
         {{else}}
         <div class="empty-state animate-fade-in-up">
             <div class="empty-icon">

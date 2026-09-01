@@ -103,6 +103,8 @@
     "reports.json": "Экспорт в JSON",
     "empty.title": "Анализ недоступен.",
     "empty.description": "Загрузите проект для начала.",
+    "results.runningTitle": "Анализ всё ещё выполняется…",
+    "results.runningDescription": "Ваш отчёт формируется. Страница обновится автоматически, когда он будет готов.",
     "errors.uploadFailed": "Ошибка загрузки.",
     "errors.uploadTooLarge": "Архив слишком велик для прямой загрузки на этом развёртывании. Для больших загрузок требуется настроить Vercel Blob.",
     "errors.largeUploadNotConfigured": "Большие загрузки не настроены на этом развёртывании.",

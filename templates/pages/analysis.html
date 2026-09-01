@@ -94,7 +94,9 @@ function analysisPoller(analysisId) {
             
             let currentStep = 0;
             const startedAt = Date.now();
-            const maxWaitMs = 300000; // give up after 5 minutes
+            // Long analyses are fully supported: the report is written to
+            // shared storage when ready, so give up only after 30 minutes.
+            const maxWaitMs = 1800000;
             
             const interval = setInterval(async () => {
                 if (currentStep < steps.length) {

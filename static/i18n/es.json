@@ -103,6 +103,8 @@
     "reports.json": "Exportar como JSON",
     "empty.title": "No hay análisis disponible.",
     "empty.description": "Sube un proyecto para comenzar.",
+    "results.runningTitle": "Analizando todavía…",
+    "results.runningDescription": "Su informe se está generando. Esta página se actualizará automáticamente cuando esté listo.",
     "errors.uploadFailed": "Error al subir.",
     "errors.uploadTooLarge": "El archivo es demasiado grande para la subida directa en este despliegue. Las subidas grandes requieren Vercel Blob configurado.",
     "errors.largeUploadNotConfigured": "Las subidas grandes no están configuradas en este despliegue.",

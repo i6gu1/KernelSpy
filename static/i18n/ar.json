@@ -103,6 +103,8 @@
     "reports.json": "تصدير كـ JSON",
     "empty.title": "لا يوجد تحليل متاح.",
     "empty.description": "ارفع مشروعًا للبدء.",
+    "results.runningTitle": "لا يزال التحليل جاريًا…",
+    "results.runningDescription": "يتم إنشاء تقريرك الآن. ستُحدَّث هذه الصفحة تلقائيًا عند اكتماله.",
     "errors.uploadFailed": "فشل الرفع.",
     "errors.uploadTooLarge": "الملف المضغوط كبير جداً للرفع المباشر على هذا النشر. يتطلب الرفع الكبير إعداد Vercel Blob.",
     "errors.largeUploadNotConfigured": "الرفع الكبير غير مُعدّ على هذا النشر.",

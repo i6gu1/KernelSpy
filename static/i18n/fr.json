@@ -103,6 +103,8 @@
     "reports.json": "Exporter en JSON",
     "empty.title": "Aucune analyse disponible.",
     "empty.description": "Téléversez un projet pour commencer.",
+    "results.runningTitle": "Analyse en cours…",
+    "results.runningDescription": "Votre rapport est en cours de génération. Cette page se rafraîchira automatiquement lorsqu'il sera prêt.",
     "errors.uploadFailed": "Échec du téléversement.",
     "errors.uploadTooLarge": "L'archive est trop volumineuse pour un téléversement direct sur ce déploiement. Les gros téléversements nécessitent Vercel Blob.",
     "errors.largeUploadNotConfigured": "Les gros téléversements ne sont pas configurés sur ce déploiement.",

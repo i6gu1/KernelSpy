@@ -21,7 +21,6 @@ import (
 )
 
 var (
-	analyses   = make(map[int]*models.AnalysisResult)
 	analysesMu sync.RWMutex
 	// pending tracks analyses that have been accepted but not yet finished
 	// (their result is still being computed in runAnalysis). It lets the
@@ -158,7 +157,6 @@ func (u *UploadHandler) Upload(w http.ResponseWriter, r *http.Request) {
 		writeQueueFull(w, r)
 		return
 	}
-	defer releaseOrderSlot()
 
 	// ---- All file I/O happens under /tmp (os.TempDir) ----
 	tmpRoot := os.TempDir()
@@ -211,20 +209,43 @@ func (u *UploadHandler) analyzeArchive(w http.ResponseWriter, zipPath string, la
 
 	projectID := int(analysisID.Add(1))
 
-	// Run the analysis synchronously *inside* this request. On Vercel's
-	// serverless Go runtime a background goroutine started after the response
-	// has been sent is frozen with the idle worker, so the result would never
-	// land in the in-memory store and the client would poll "running" forever
-	// (the "Analyzing" dead-end). Running the scan while this request is still
-	// in-flight keeps the worker alive until the report is ready and
-	// guarantees results exist before the client is sent to the results page.
-	runAnalysis(projectID, projectDir, zipPath)
+	// Register the analysis as in-flight *before* answering, on this instance
+	// (pending) and in shared storage (running state), so a status poll that
+	// lands on ANY container instance sees "running" immediately instead of
+	// "analysis not found".
+	analysesMu.Lock()
+	pending[projectID] = struct{}{}
+	analysesMu.Unlock()
+	store := services.ResultStoreInstance()
+	store.MarkRunning(projectID)
 
+	// Run the analysis in the background and answer right away. The response
+	// no longer stays open for the whole scan (which the platform used to cut
+	// off on long projects), and the report is written to shared Blob storage
+	// as soon as it is ready, so whichever instance the browser hits next can
+	// serve /analysis/:id, /results/:id and the report APIs. The client polls
+	// the status endpoint and is forwarded to the results page on completion.
+	//
+	// A synchronous mode stays available via ANALYSIS_SYNC=1 for hosts where
+	// background goroutines cannot outlive a request (plain serverless
+	// functions), preserving the original behaviour there.
+	if os.Getenv("ANALYSIS_SYNC") == "1" {
+		runAnalysis(projectID, projectDir, zipPath)
+		middleware.WriteJSON(w, http.StatusOK, map[string]interface{}{
+			"success":     true,
+			"analysis_id": projectID,
+			"status":      "completed",
+			"message":     "Analysis complete",
+		})
+		return
+	}
+
+	go runAnalysis(projectID, projectDir, zipPath)
 	middleware.WriteJSON(w, http.StatusOK, map[string]interface{}{
 		"success":     true,
 		"analysis_id": projectID,
-		"status":      "completed",
-		"message":     "Analysis complete",
+		"status":      "running",
+		"message":     "Analysis accepted",
 	})
 }
 
@@ -330,7 +351,6 @@ func (u *UploadHandler) CompleteUpload(w http.ResponseWriter, r *http.Request) {
 		writeQueueFull(w, r)
 		return
 	}
-	defer releaseOrderSlot()
 
 	tmpRoot := os.TempDir()
 	uploadDir := filepath.Join(tmpRoot, "blackhat-uploads")
@@ -355,33 +375,58 @@ func sanitizeFilename(name string) string {
 	return replacer.Replace(name)
 }
 
-// runAnalysis executes the SAST pipeline, stores the result and cleans up
-// every temporary file (uploaded ZIP + extracted tree) so /tmp never fills up
-// on Vercel's ephemeral disk. It is called synchronously from the upload
-// handler — not in a background goroutine — because serverless workers freeze
-// idle goroutines between requests, which would leave the analysis stuck in
-// "running" forever.
+// runAnalysis executes the SAST pipeline, persists the result (memory + shared
+// Blob storage when enabled) and cleans up every temporary file (uploaded ZIP
+// + extracted tree) so /tmp never fills up on Vercel's ephemeral disk. It runs
+// in a background goroutine on container hosts: the deployment keeps the
+// container warm while the browser polls the status endpoint, so the report
+// always lands — even for scans that outlive the old synchronous request.
+//
+// Whatever happens, a report is stored: a real one on success, or an
+// Error-marked result on failure/timeout. Clients therefore always reach a
+// readable outcome, never a void "no results" page. The order slot is released
+// here too, so the queue only counts analyses that are actually running.
+//
+// ANALYSIS_SYNC=1 flips the caller into synchronous mode; in that mode this
+// function is still safe to call before the response is written.
 func runAnalysis(projectID int, projectDir, zipPath string) {
+	store := services.ResultStoreInstance()
+
+	// Heartbeat the "running" marker so a shared-storage reader can never
+	// mistake a long healthy scan for an orphaned one (see staleStateAfter).
+	stop := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				store.MarkRunning(projectID)
+			case <-stop:
+				return
+			}
+		}
+	}()
+
 	// Register the cleanup before doing any work so it also runs on panic:
 	// mark the analysis as no longer in-flight (otherwise the status
 	// endpoint would report "running" forever for this id), then remove the
-	// extracted project and uploaded archive.
+	// extracted project and uploaded archive and free the order slot.
 	defer func() {
+		close(stop)
 		analysesMu.Lock()
 		delete(pending, projectID)
 		analysesMu.Unlock()
 		os.RemoveAll(projectDir)
 		os.Remove(zipPath)
+		releaseOrderSlot()
 	}()
 
-	// A large project can take a while, but the whole analysis must still fit
-	// inside the platform's function window (300 s on Vercel Hobby). The
-	// watchdog caps the pipeline at ANALYSIS_TIMEOUT (default 600 s) so a big
-	// upload degrades into a clear timeout result instead of a request cut off
-	// mid-flight by the platform. When the deadline fires, the abandoned
-	// AnalyzeProject goroutine keeps running in the background but stays
+	// The watchdog bounds the pipeline so a pathological scan cannot pin a
+	// worker forever. On timeout the abandoned AnalyzeProject goroutine stays
 	// bounded: every tool subprocess has its own per-tool timeout and the
-	// cleanup below removes the project dir, so it fails fast and drains.
+	// cleanup above removes the project dir, so it fails fast and drains.
+	// The result is a clear timeout report instead of a silently dropped scan.
 	analyzer := services.NewAnalyzer()
 	start := time.Now()
 
@@ -404,26 +449,27 @@ func runAnalysis(projectID int, projectDir, zipPath string) {
 	}
 	duration := time.Since(start)
 
+	var result *models.AnalysisResult
 	if o.err != nil {
-		analysesMu.Lock()
-		analyses[projectID] = &models.AnalysisResult{
+		result = &models.AnalysisResult{
 			FilesScanned:    0,
 			DurationSeconds: int(duration.Seconds()),
 			Error:           o.err.Error(),
 		}
-		analysesMu.Unlock()
-		return
+	} else {
+		o.result.DurationSeconds = int(duration.Seconds())
+		result = o.result
 	}
 
-	o.result.DurationSeconds = int(duration.Seconds())
-	analysesMu.Lock()
-	analyses[projectID] = o.result
-	analysesMu.Unlock()
+	// Persist in memory AND shared Blob storage so any instance can render it.
+	store.PutResult(projectID, result)
+	store.MarkCompleted(projectID)
 }
 
 // analysisDeadline is the hard cap for a single analysis run, from the
-// ANALYSIS_TIMEOUT env var (seconds; default 600). Deployments with a tighter
-// platform window (Vercel Hobby: 300 s) should set it a little below that.
+// ANALYSIS_TIMEOUT env var (seconds; default 600). It bounds the watchdog that
+// prevents a pathological scan from pinning a worker forever; on expiry a
+// clear timeout report is persisted rather than the scan being dropped.
 func analysisDeadline() time.Duration {
 	if v := os.Getenv("ANALYSIS_TIMEOUT"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
@@ -436,10 +482,10 @@ func analysisDeadline() time.Duration {
 // RunFolderAnalysis scans a local directory in place — the desktop-app path.
 // Unlike the upload flow there is nothing to extract and, critically, nothing
 // to delete afterwards: the user's project stays untouched on disk. The
-// analysis runs in a background goroutine (a desktop process has no
-// serverless request window to honor) and the result lands in the same
-// in-memory store, so the existing /analysis/:id poller and /results/:id page
-// work unchanged. The caller receives the analysis id immediately.
+// analysis runs in a background goroutine (a desktop process has no serverless
+// request window to honor) and the result lands in the same shared store, so
+// the existing /analysis/:id poller and /results/:id page work unchanged.
+// The caller receives the analysis id immediately.
 func RunFolderAnalysis(projectPath string) (int, error) {
 	info, err := os.Stat(projectPath)
 	if err != nil {
@@ -453,6 +499,8 @@ func RunFolderAnalysis(projectPath string) (int, error) {
 	analysesMu.Lock()
 	pending[projectID] = struct{}{}
 	analysesMu.Unlock()
+	store := services.ResultStoreInstance()
+	store.MarkRunning(projectID)
 
 	go func() {
 		defer func() {
@@ -467,30 +515,27 @@ func RunFolderAnalysis(projectPath string) (int, error) {
 		duration := time.Since(start)
 
 		if err != nil {
-			analysesMu.Lock()
-			analyses[projectID] = &models.AnalysisResult{
+			result = &models.AnalysisResult{
 				FilesScanned:    0,
 				DurationSeconds: int(duration.Seconds()),
 				Error:           err.Error(),
 			}
-			analysesMu.Unlock()
-			return
+		} else {
+			result.DurationSeconds = int(duration.Seconds())
 		}
-		result.DurationSeconds = int(duration.Seconds())
-		analysesMu.Lock()
-		analyses[projectID] = result
-		analysesMu.Unlock()
+		store.PutResult(projectID, result)
+		store.MarkCompleted(projectID)
 	}()
 
 	return projectID, nil
 }
 
-// lookupResult retrieves an analysis result by id.
+// lookupResult retrieves an analysis result by id from the shared store
+// (memory cache first, then persistent Blob storage). Store reads are safe
+// across container instances, which fixes the intermittent "No analysis
+// available" results page.
 func lookupResult(id int) (*models.AnalysisResult, bool) {
-	analysesMu.RLock()
-	defer analysesMu.RUnlock()
-	result, exists := analyses[id]
-	return result, exists
+	return services.ResultStoreInstance().FetchResult(id)
 }
 
 type AnalysisHandler struct{}
@@ -510,6 +555,24 @@ func (d *DashboardHandler) ResultsPage(w http.ResponseWriter, r *http.Request) {
 
 	result, exists := lookupResult(id)
 	if !exists {
+		// The report may still be in flight (poll landed before the background
+		// analysis stored it, or on a different instance). Render the
+		// "still analyzing" state instead of the misleading "No analysis
+		// available" page; the template polls and reloads when it is ready.
+		state := services.ResultStoreInstance().FetchState(id)
+		analysesMu.RLock()
+		_, running := pending[id]
+		analysesMu.RUnlock()
+
+		if state == services.StateRunning || running {
+			RenderTemplate(w, r, "results", map[string]interface{}{
+				"HasResult":  false,
+				"Running":    true,
+				"AnalysisID": idStr,
+			})
+			return
+		}
+
 		RenderTemplate(w, r, "results", map[string]interface{}{
 			"HasResult":  false,
 			"AnalysisID": idStr,
@@ -584,7 +647,12 @@ func (api *APIHandler) AnalysisStatus(w http.ResponseWriter, r *http.Request) {
 		_, running := pending[id]
 		analysesMu.RUnlock()
 
-		if !running {
+		// A status poll can land on a different instance than the one running
+		// the scan; the shared store carries the lifecycle state across all of
+		// them, so "running" is reported correctly from anywhere.
+		state := services.ResultStoreInstance().FetchState(id)
+
+		if !running && state != services.StateRunning && state != services.StateCompleted {
 			// Unknown id: either it never existed (rate-limited upload, bad
 			// URL) or the server restarted mid-scan. Tell the client instead
 			// of reporting a fake "running" state that would poll forever.
