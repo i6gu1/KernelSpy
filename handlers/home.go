@@ -16,6 +16,7 @@ import (
 	"black-hat"
 	"black-hat/i18n"
 	"black-hat/middleware"
+	"black-hat/services"
 )
 
 // templates holds one compiled template set per page. Every page file
@@ -144,7 +145,10 @@ func NewHandler() http.Handler {
 	})
 	mux.HandleFunc("/upload", u.UploadPage)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		middleware.WriteJSON(w, http.StatusOK, map[string]interface{}{"status": "ok"})
+		middleware.WriteJSON(w, http.StatusOK, map[string]interface{}{
+			"status": "ok",
+			"tools":  services.InspectTools(),
+		})
 	})
 
 	// Technical SEO: robots.txt and the XML sitemap, both generated from the

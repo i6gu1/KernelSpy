@@ -46,15 +46,27 @@ download_tarball() {
     return 0
   fi
   log "downloading $name from $url"
-  local tmp
-  tmp="$(mktemp -d)"
-  if command -v curl >/dev/null 2>&1; then
-    curl -fsSL -o "$tmp/dl.tgz" "$url" || { warn "failed to download $name"; rm -rf "$tmp"; return 1; }
-  elif command -v wget >/dev/null 2>&1; then
-    wget -q -O "$tmp/dl.tgz" "$url" || { warn "failed to download $name"; rm -rf "$tmp"; return 1; }
-  else
-    warn "no curl/wget available, skipping $name"
+  local tmp attempt ok=1
+  for attempt in 1 2 3; do
+    tmp="$(mktemp -d)"
+    if command -v curl >/dev/null 2>&1; then
+      curl -fsSL -o "$tmp/dl.tgz" "$url" && ok=0
+    elif command -v wget >/dev/null 2>&1; then
+      wget -q -O "$tmp/dl.tgz" "$url" && ok=0
+    else
+      warn "no curl/wget available, skipping $name"
+      rm -rf "$tmp"
+      return 1
+    fi
+    if [ "$ok" = "0" ]; then
+      break
+    fi
+    warn "download of $name failed (attempt $attempt/3); retrying..."
     rm -rf "$tmp"
+    sleep 5
+  done
+  if [ "$ok" != "0" ]; then
+    warn "failed to download $name"
     return 1
   fi
   tar -xzf "$tmp/dl.tgz" -C "$tmp" || { warn "failed to unpack $name"; rm -rf "$tmp"; return 1; }
@@ -235,9 +247,23 @@ install_python_tool() {
     return 1
   fi
   log "installing $name via pip"
-  python3 -m pip install --quiet --break-system-packages "$name" 2>/dev/null \
-    || python3 -m pip install --quiet "$name" 2>/dev/null \
-    || { warn "failed to pip install $name"; return 1; }
+  # pip can transiently fail to reach PyPI during cloud builds, so retry the
+  # install a few times before giving up (a missing tool after a successful
+  # build would otherwise be reported as "missing" in every report).
+  local attempt ok=1
+  for attempt in 1 2 3; do
+    if python3 -m pip install --quiet --break-system-packages "$name" 2>/dev/null \
+      || python3 -m pip install --quiet "$name" 2>/dev/null; then
+      ok=0
+      break
+    fi
+    warn "pip install $name failed (attempt $attempt/3); retrying..."
+    sleep 5
+  done
+  if [ "$ok" != "0" ]; then
+    warn "failed to pip install $name"
+    return 1
+  fi
   log "$name installed"
 }
 

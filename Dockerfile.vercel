@@ -44,6 +44,13 @@ WORKDIR /root/
 # would try (and fail) to re-download it on the first request. /opt/trivy-cache
 # survives in the image layers, so the pre-downloaded DB is used offline.
 COPY build.sh /build.sh
+# Force Vercel's Docker build cache to re-execute build.sh on every deploy:
+# the step runs `build.sh || true` (best-effort), so WITHOUT a changing
+# cache key a stale layer from an earlier build -- possibly one whose
+# downloads partially failed -- would be reused forever and the live image
+# would keep reporting tools as "missing".
+ARG TOOLCHAIN_BUILD_ID="now"
+ENV TOOLCHAIN_BUILD_ID=${TOOLCHAIN_BUILD_ID}
 ENV SAST_SKIP_CODQL=1 \
     SAST_SKIP_DEPCHECK=1 \
     SAST_SKIP_SPOTBUGS=1 \
